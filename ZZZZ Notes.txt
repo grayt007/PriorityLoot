@@ -1,0 +1,8 @@
+
+https://warcraft.wiki.gg/wiki/UIOBJECT_Frame   -  Fram commands
+
+
+Check so that at least one filter is always set
+
+When the roster is updated we need to recreate the headings which are not part of the scrolltable so it will need an extra step or two
+

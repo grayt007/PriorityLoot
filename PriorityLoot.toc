@@ -1,0 +1,13 @@
+## Title: PriorityLoot
+## Version: 1.0
+## Author: grayt
+## Interface: 80205
+## SavedVariables: DbPriorityLoot
+
+embeds.xml
+
+modules/core.lua
+modules/options.lua
+modules/GUI.lua
+modules/utils.lua
+modules/config.lua
