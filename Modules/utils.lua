@@ -98,8 +98,58 @@ function util.inverted(t)
     return temp_t
 end
 
+function util.tableToString(theTable)
+    local result = "{"
+    for k, v in pairs(theTable) do
+        if type(k) == "string" then
+            k = string.format("%q", k)
+        end
+        if type(v) == "table" then
+            v = serialize(v)
+        else
+            v = string.format("%q", v)
+        end
+        result = result .. "[" .. k .. "]=" .. v .. ","
+    end
+    return result .. "}"
+end
+
+function util.stringToTable(theString)
+    local func = load("return " .. theString)
+    return func()
+end
+
+function util.extractfield(theTable,theField,flag)
+-- extract one field from a table and convert it to a table or to text
+-- true means a table false mean text
+
+    local tableResult = {}
+	local textResult = ""
+
+    for i, record in ipairs(theTable) do
+        if record[theField] then
+            if theFlag then
+                table.insert(tableResult, record[fieldName])
+			else
+			    textResult = textResult..textResult..","
+			end
+        end
+    end
+	
+    if not theFlag then
+		textResult = textResult:sub(1, -2)
+        return textResult
+    else
+	    return tableResult
+	end
+end
+
 function util.unitname(unit)
-	local name, server = UnitName(unit)
+	local name, server = UnitNameUnmodified(unit,true)
+
+    if server==nil then
+        server=GetRealmName()
+    end
 
     if server and server~="" then
         name = ("%s-%s"):format(name,server)
@@ -109,26 +159,10 @@ function util.unitname(unit)
 end
 
 function util.getShortName(theName)
+-- what is the player name if the origional string included the server
 
 	return string.match(theName, "^[^%-]+")
 
-end
-
-function util.decoratedName(unitName)
-    local name = unitName
-    local unit = addon.roster[unitName]
-    if UnitIsPlayer(unit) then
-        local _,eClass = UnitClass(addon.roster[unitName])
-        local colorStr = classColors[eClass] and classColors[eClass].colorStr or classColors["UNKNOWN"].colorStr
-        if util.hasValue(addon.tanks,unitName) then
-            name = ("%s|c%s%s|r"):format(INLINE_MAINTANK,colorStr,name)
-        --GRT elseif util.hasValue(addon.damagers,unitName) then
-        --GRT     name = ("%s|c%s%s|r"):format(INLINE_MAINASSIST,colorStr,name)
-        else
-            name = ("|c%s%s|r"):format(colorStr,name)
-        end
-    end
-    return name
 end
 
 function util.GetIconString(icon, iconSize)
@@ -143,9 +177,15 @@ function util.GetIconString(icon, iconSize)
     return format("|T%s:%d:%d:0:0:256:256:%d:%d:%d:%d|t", icon, size, size, ltTexel, rbTexel, ltTexel, rbTexel)
 end
 
-function util.Colorize(text, color)
+function util.Colorize(text, color , theFlag)
+-- theFlag indicates if its a Class Color like "Warrior"
     if not text then return end
     local hexColor = hexFontColors[color] or hexFontColors["blizzardFont"]
+
+	if theFlag then
+        hexColor = C_ClassColor.GetClassColor(color):GenerateHexColor()
+    end
+
     return "|c" .. hexColor .. text .. "|r"
 end
 
@@ -159,29 +199,6 @@ function util.findItemSubType(theSubType)
     return "NONE"
 end
 
-
-
-
-
-
--- function.util.getRaids()
-
-    --local i = 1
-    --while EJ_GetInstanceByIndex(i, true) do
-    --    local instanceId, name = EJ_GetInstanceByIndex(i, true)
-    --    print(instanceId, name)
-    --    EJ_SelectInstance(instanceId)
-    --    i = i+1
-    
-    --    local j = 1
-    --    while EJ_GetEncounterInfoByIndex(j, instanceId) do
-    --        local name, _, encounterId = EJ_GetEncounterInfoByIndex(j, instanceId)
-    --        print(encounterId, name)
-    --        j = j+1
-    --    end
-    --end
-
---end
 
 
 
