@@ -2,11 +2,14 @@
 ## Version: 1.0
 ## Author: grayt
 ## Interface: 80205
-## SavedVariables: DbPriorityLoot
+## SavedVariables: PriorityLootDb
+## XDate: 
+## XRevision: 
 
 embeds.xml
 
 modules/core.lua
+modules/messaging.lua
 modules/options.lua
 modules/GUI.lua
 modules/utils.lua
