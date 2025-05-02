@@ -8,15 +8,16 @@ local ACR = LibStub("AceConfigRegistry-3.0")
 local AceConfig = LibStub("AceConfig-3.0")
 local LibDialog = LibStub("LibDialog-1.0")
 
+local priorityLootRollsActive = priorityLootRollsActive
 local GetCVarBool = GetCVarBool
 local SetCVar = SetCVar
 -- local InCombatLockdown = InCombatLockdown
-local CopyTable = CopyTable
-local format = format
-local next = next
-local wipe = wipe
-local pairs = pairs
-local type = type
+--local CopyTable = CopyTable
+--local format = format
+--local next = next
+--local wipe = wipe
+--local pairs = pairs
+--local type = type
 local tonumber = tonumber
 local tostring = tostring
 local version = version
@@ -103,7 +104,7 @@ function addon:addTabsToOptionsBase()
                 end,
             },
             welcomeChat = {
-                order = 3,
+                order = 2,
                 name = "Welcome chat",
                 type = "toggle",
                 width = 1.5,
@@ -111,6 +112,17 @@ function addon:addTabsToOptionsBase()
                 get = function(info) return self.PLdb.profile.config.welcomeChat end,
                 set = function(info, val)
                     self.PLdb.profile.config.welcomeChat = val
+                end,
+            },
+            welcomeScreen = {
+                order = 3,
+                name = "Welcome image",
+                type = "toggle",
+                width = 1.5,
+                desc = "Version and Addon name in chat at startup",
+                get = function(info) return self.PLdb.profile.config.welcomeMessage2 end,
+                set = function(info, val)
+                    self.PLdb.profile.config.welcomeMessage2 = val
                 end,
             },
             minimap = {
@@ -124,6 +136,7 @@ function addon:addTabsToOptionsBase()
                     self:ToggleMinimapIcon()
                 end,
             },
+
             spaceSettingsB = {
                 order = 4.5,
                 name = " ",
@@ -159,7 +172,7 @@ function addon:addTabsToOptionsBase()
 					return util.Colorize(self.PLdb.profile.config.myGuildName).." on realm "..util.Colorize(self.PLdb.profile.config.myGuildRealm)
 				end,
 			},
-            spaceSettingsB = {
+            spaceSettingsC = {
                 order = 9,
                 name = " ",
                 type = "description",
@@ -168,17 +181,81 @@ function addon:addTabsToOptionsBase()
 			myLootManager = {
 				order = 10,
 				type = "input",
-                name = "Your Loot manager has been set to:",
+                name = "My Loot manager has been set to:",
                 width = 2,
-                get = function()    
-					return self.PLdb.profile.config.guildLootManager
-				end,
+                get = function() return self.PLdb.profile.config.guildLootManager end,
 			},
-             spaceSettingsC = {
+            spaceSettingsD = {
                 order = 11,
                 name = " ",
                 type = "description",
                 width = "full",
+            },
+            setLootRollStateOn = {
+				order = 13,
+				type = "execute",
+                name = "Turn on Loot Rolls",
+                width = 1,
+                disabled = function ()
+					        return thisAddon.priorityLootRollsActive
+                        end,
+                hidden = function() 
+						    if iAmTheGM or iAmTheLootManager or self.PLdb.profile.config.testMode then 
+							    return false 
+						    else
+                                return true
+						    end
+						end,
+                func = function()
+                            if iAmTheGM or iAmTheLootManager then 
+                                addon:inPL_ADDON_ACTIVE(true)
+							end
+					    end,
+            },
+            setLootRollStateOff = {
+				order = 14,
+				type = "execute",
+                name = "Turn off Loot Rolls",
+                width = 1,
+                disabled = function ()
+					        return not thisAddon.priorityLootRollsActive
+                        end,
+                hidden = function() 
+						if iAmTheGM or iAmTheLootManager or self.PLdb.profile.config.testMode then 
+							return false 
+						else
+                            return true
+						end
+						end,
+                func = function()
+                    if iAmTheGM or iAmTheLootManager then 
+					    addon:inPL_ADDON_ACTIVE(false)
+                    end
+					end,
+            },
+            spaceSettingsE = {
+                order = 14.5,
+                name = " ",
+                type = "description",
+                width = "1.5",
+            },
+            sendPL_CONFIG_UPDATE = {
+				order = 15,
+				type = "execute",
+                name = "Send configuration update",
+                width = 2,
+                hidden = function() 
+						if iAmTheGM or iAmTheLootManager or self.PLdb.profile.config.testMode then 
+							return false 
+						else
+                            return true
+						end
+						end,
+                func = function()
+                        if iAmTheGM or iAmTheLootManager then 
+                            addon:buildPL_CONFIG_UPDATE()
+						end
+					end,
             },
         },
     }
@@ -197,9 +274,10 @@ function addon:addTabsToOptionsBase()
             guildOfficerRanks = {
 				order = 12,
 				type = "multiselect",
-                desc = "Choose the ranks that represent officers.  This will impact who can be a Loot Manager and other background logic.",
+                desc = "Choose the ranks that represent officers.  This will impact who can be a Loot Manager and other background logic.  It can be set by the GM or the Loot Manager",
                 name = "Officer guild ranks ",
                 hidden = function() 
+                        print (">>"..tostring(iAmTheGM).." - "..tostring(iAmTheLootManager).."  -  "..tostring(self.PLdb.profile.config.testMode).." <<")
 						if iAmTheGM or iAmTheLootManager or self.PLdb.profile.config.testMode then 
 							return false 
 						else
@@ -225,11 +303,13 @@ function addon:addTabsToOptionsBase()
                 set = function(info, key, value) 
                         -- we and looking to see if the rankindex exists so put in the number for true or "-" for false
                         -- dont forget ranks start at zero and tables start at 1
-                        if value then
-                            self.PLdb.profile.config.guildOfficerRanks[key] = key-1
-                        else
-                            self.PLdb.profile.config.guildOfficerRanks[key] = "-"
-                        end 
+                        if iAmTheGM or iAmTheLootManager then 
+                            if value then
+                                self.PLdb.profile.config.guildOfficerRanks[key] = key-1
+                            else
+                                self.PLdb.profile.config.guildOfficerRanks[key] = "-"
+                            end 
+						end
                         end,
                 },
             spaceSettingsB2 = {
@@ -249,11 +329,17 @@ function addon:addTabsToOptionsBase()
 				type = "select",
                 values = addon.PLdb.profile.config.officerList, 
                 name = "Guild Loot Manager is",
-                disabled = function() return (not iAmTheGM and not self.PLdb.profile.config.testMode ) end,
+                disabled = function() 
+					if not iAmTheGM or not self.PLdb.profile.config.testMode then
+                        return true
+                    end
+				    end,
                 width = "1.5",
                 get = function() return self.PLdb.profile.config.guildLootManager end,
                 set = function(info, value) 
-                        self.PLdb.profile.config.guildLootManager = value 
+                        if iAmTheGM then 
+                            self.PLdb.profile.config.guildLootManager = value 
+                        end
                         end,
 			},
             spaceSettingsC = {
@@ -289,13 +375,15 @@ function addon:addTabsToOptionsBase()
                 set = function(info, key, value) 
                         -- we and looking to see if the rankindex exists so put in the number for true or "-" for false
                         -- dont forget ranks start at zero and tables start at 1
-                        if value then
-                            self.PLdb.profile.config.guildRaidRanks[key] = key-1
-                        else
-                            self.PLdb.profile.config.guildRaidRanks[key] = "-"
-                        end 
-                        loadGuildRoster()
-                        fillTableColumn()
+                        if iAmTheGM or iAmTheLootManager then 
+                            if value then
+                                self.PLdb.profile.config.guildRaidRanks[key] = key-1
+                            else
+                                self.PLdb.profile.config.guildRaidRanks[key] = "-"
+                            end 
+                            loadGuildMembers()
+                            fillTableColumn()
+						end
                         end,
                 },
 
@@ -313,17 +401,32 @@ function addon:addTabsToOptionsBase()
                 name = 'General Interface Settings',
                 order = 10,
             },
-			nameLeftMargin = {
-                name = 'Left margin on header names',
+			nameLeftMarginTop = {
+                name = 'Left margin on top header names',
                 type = 'range',
                 width = 1.5,
-                min = -10,
+                min = -40,
                 max = 10,
                 step = 1,
                 order = 11,
-				get = function(info) return self.PLdb.profile.config.GUI.nameLeftMargin end,
+				get = function(info) return self.PLdb.profile.config.GUI.nameLeftMarginTop end,
                 set = function(info, val)
-                    self.PLdb.profile.config.GUI.nameLeftMargin = val
+                    self.PLdb.profile.config.GUI.nameLeftMarginTop = val
+                    fillTableColumn()
+                end,
+            },
+            nameLeftMarginBottom = {
+                name = 'Left margin on bottom header names',
+                type = 'range',
+                width = 1.5,
+                min = -40,
+                max = 10,
+                step = 1,
+                order = 11,
+				get = function(info) return self.PLdb.profile.config.GUI.nameLeftMarginBottom end,
+                set = function(info, val)
+                    self.PLdb.profile.config.GUI.nameLeftMarginBottom = val
+                    fillTableColumn()
                 end,
             },
             spaceSettingsA = {
@@ -517,7 +620,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
                         get = function(info) return self.PLdb.profile.config.numberOfPriorities end,
                         set = function(info, val)
-                            self.PLdb.profile.config.numberOfPriorities = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.numberOfPriorities = val
+                            end
                         end,
                     },
                     h2 = {
@@ -534,7 +639,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.includeARmour end,
                         set = function(info, val)
-                            self.PLdb.profile.config.includeARmour = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.includeARmour = val
+                            end
                         end,
                     },
                     includeWeapons = {
@@ -546,7 +653,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.includeWeapons end,
                         set = function(info, val)
-                            self.PLdb.profile.config.includeWeapons = val
+                            if iAmTheGM or iAmTheLootManager then 
+							    self.PLdb.profile.config.includeWeapons = val
+                              end
                         end,
                     },
                     includeTrinkets = {
@@ -558,7 +667,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.includeTrinkets end,
                         set = function(info, val)
-                            self.PLdb.profile.config.includeTrinkets = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.includeTrinkets = val
+                            end
                         end,
                     },
                     includeJewelery = {
@@ -570,7 +681,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.includeJewelery end,
                         set = function(info, val)
-                            self.PLdb.profile.config.includeJewelery = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.includeJewelery = val
+                            end
                         end,
                     },
                     includeTier = {
@@ -582,7 +695,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.includeTier end,
                         set = function(info, val)
-                            self.PLdb.profile.config.includeTier = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.includeTier = val
+                            end
                         end,
                     },
                     spaceSettings2A = {
@@ -627,7 +742,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.refineSuicide end,
                         set = function(info, val)
-                            self.PLdb.profile.config.refineSuicide = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.refineSuicide = val
+                            end
                         end,
                     },
                     spaceSettings5B = {
@@ -645,7 +762,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.refineItemLevel end,
                         set = function(info, val)
-                            self.PLdb.profile.config.refineItemLevel = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.refineItemLevel = val
+                            end
                         end,
                     },
                     refineItemLevelRange = {
@@ -659,7 +778,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.refineItemLevelRange end,
                         set = function(info, val)
-                            self.PLdb.profile.config.refineItemLevelRange = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.refineItemLevelRange = val
+							end
                         end,
                     },
                     refineItemLevel = {
@@ -671,7 +792,9 @@ function addon:addRuleOptions(theOrder)
                         disabled = function() return (not iAmTheGM and not iAmTheLootManager and not self.PLdb.profile.config.testMode ) end,
 						get = function(info) return self.PLdb.profile.config.refineGuildRank end,
                         set = function(info, val)
-                            self.PLdb.profile.config.refineGuildRank = val
+                            if iAmTheGM or iAmTheLootManager then 
+                                self.PLdb.profile.config.refineGuildRank = val
+							end
                         end,
                     },
   
@@ -840,6 +963,8 @@ function addon:getLogoName()
 	
 end
 
+
+
 function addon:Options()
 local counter = 0
 
@@ -871,7 +996,6 @@ local counter = 0
                 set = function(info, val)
                     self.PLdb.profile.config.testMode = val
                     self.options.args.logo2.desc = addon:getLogoName()
-
                 end,
             },
 

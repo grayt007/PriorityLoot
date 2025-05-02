@@ -5,7 +5,7 @@ thisAddon.filters = {}
 thisAddon.frameReferences = {}
 thisAddon.frameBeingDisplayed = 0
 thisAddon.checkboxList = {}
-thisAddon.ChannelId = 0
+-- thisAddon.ChannelId = 0
 thisAddon.playerSelections = {}
 thisAddon.priorityHistory = {}
 thisAddon.roster = {} 
@@ -32,16 +32,17 @@ _G[MyAddOnName] = addon
 addon.LibRange = LibRange
 addon.Prefix = 'pl.bT'
 local dbName = ("%sDb"):format(MyAddOnName)
-local finishedInitalising = false -- there is a delay in getting guild info in the client.   The client  needs 10-15 seconds to finish fully initalising. 
+finishedInitalising = false -- there is a delay in getting guild info in the client.   The client  needs 10-15 seconds to finish fully initalising. 
+thisAddon.priorityLootRollsActive = false -- Has the loot manager activated the addon for this raid.
 
-version = 0.72  -- date("%m%d%H%M")
+version = 0.73  -- date("%m%d%H%M")
 local headingsExist = false
-local iAmTheLootManager = false
-local iAmTheGM = false
+iAmTheLootManager = false
+iAmTheGM = false
 local tableColumnContent = "S"
 local currentBoss = "225822"   -- return the bossId of the first boss
 local raidUnit = {}            -- the unitID in a raid is "raidN" the raid member with raidIndex N (1,2,3,...,40).
-local guildUnit = {}
+thisAddon.guildUnit = {}
 
 	
 -- Minimap button functionality
@@ -72,18 +73,15 @@ local broker = LDB:NewDataObject(MyAddOnName, {
         GameTooltip:Show()
     end,
     OnClick = function(self, button)
-        if button == "LeftButton" then
-            if finishedInitalising then
+        if not finishedInitalising then
+                util.Print(format("%s: Please allow 15 seconds for the Warcraft client to finish initialising", util.Colorize("WARNING:", "accent")))
+        elseif button == "LeftButton" then
                 addon:ToggleLootWindow()
-            else
-                util.Print(format("%s: Please allow 15 seconds for the client to finish initialising", util.Colorize("WARNING:", "accent")))
-			end
-
         elseif button == "RightButton" then
 
             if IsRightControlKeyDown() then 
-                -- buildCheckRankMessage()
-                util.Print(getPlayerInformation(util.unitname("player"),"228861","RP"))
+                -- buildPL_RANK_CHECK()
+                addon:yesnoBox("Do you wish to swap the Priority Loot allocations state for this raid ?","activateLootRolls")
             end
 
             if IsShiftKeyDown() then
@@ -92,7 +90,6 @@ local broker = LDB:NewDataObject(MyAddOnName, {
                     util.Print(format("Minimap icon is now hidden. Type %s %s to show it again.", util.Colorize("/auga", "accent"), util.Colorize("minimap", "accent")))
                 end
                 ACR:NotifyChange(MyAddOnName)
-            
             else
                 addon:ToggleOptions()
             end
@@ -108,43 +105,10 @@ local broker = LDB:NewDataObject(MyAddOnName, {
 --local IsInGroup,GetNumGroupMembers,GetNumSubgroupMembers,GetRaidRosterInfo,GetPartyAssignment,GetRaidTargetIndex =
 --IsInGroup,GetNumGroupMembers,GetNumSubgroupMembers,GetRaidRosterInfo,GetPartyAssignment,GetRaidTargetIndex
 
-local function CreateBorder(self, barExists)
-    if not lootRoll.GUI.border then return end
-    if not self.borders then
-        self.borders = {}
-        for i=1, 4 do
-            self.borders[i] = self:CreateLine(nil, "OVERLAY", nil, 0)
-            local l = self.borders[i]
-            l:SetThickness(1)
-            l:SetColorTexture(0.1, 0.1, 0.1, 0.8)
-            if i==1 then
-                l:SetStartPoint("TOPLEFT")
-                l:SetEndPoint("TOPRIGHT")
-            elseif i==2 then
-                l:SetStartPoint("TOPRIGHT")
-                l:SetEndPoint("BOTTOMRIGHT")
-            elseif i==3 then
-                l:SetStartPoint("BOTTOMRIGHT")
-                l:SetEndPoint("BOTTOMLEFT")
-            else
-                l:SetStartPoint("BOTTOMLEFT")
-                l:SetEndPoint("TOPLEFT")
-            end
-        end
-    end
-end
-
 ---------------- SETUP FUNCTIONS------------------------------
 
 function addon:OnInitialize()                                               -- MyAddOnName_LOADED(MyAddOnName)
  -- Code that you want to run when the addon is first loaded goes here.
-
-    -- Can I run this addon
- --   if not util.hasValue(testTeam, util.unitname("player") then
-	--    util.Print("Only the test team can use this addon at this point")
-	--end
-
-
 
     -- get a copy of the default filter that control what items are displayed 
 	local defaultSettings = {
@@ -158,15 +122,17 @@ function addon:OnInitialize()                                               -- M
     --  New DB  https://www.wowace.com/projects/ace3/pages/ace-db-3-0-tutorial 
    	addon.PLdb = LibStub("AceDB-3.0"):New(dbName, defaultSettings)    
     LDBIcon:Register(MyAddOnName, broker, self.PLdb.profile.minimap)       -- 3rd parameter is where to store the  hide/show + location of button 
-
+   
     -- Register for actions when the profile is changed
     if not self.registered then                                         
         addon.PLdb.RegisterCallback(self, "OnProfileChanged", "FullRefresh")
         addon.PLdb.RegisterCallback(self, "OnProfileCopied", "FullRefresh")
         addon.PLdb.RegisterCallback(self, "OnProfileReset", "FullRefresh")
 
-        self:ScheduleTimer("getGuildDetails", 15) -- delay getting the guild info because the client will return an error while it full initialises
-        self:ScheduleTimer("buildCheckRankMessage", random(10,30)) -- delay sending the message to spread them out if multiple people login near the same time
+        addon:ScheduleTimer("getGuildDetails", 15) -- delay getting the guild info because the client will return an error while it full initialises
+        addon:ScheduleTimer("buildPL_RANK_CHECK", random(15,45)) -- delay sending the message to spread them out if multiple people login near the same time
+
+        addon:displayWelcomeImage()
 
         self.registered = true
     end
@@ -208,7 +174,7 @@ function addon:OnEnable()
 -- Called when the addon is enabled
 
     -- some baseline debugging
-    util.AddDebugData(guildUnit,"Guild list stored")
+    util.AddDebugData(thisAddon.guildUnit,"Guild list stored")
     util.AddDebugData(thisAddon.roster,"Current roster")
 
     -- preload the raid roster with the expected userID
@@ -239,6 +205,7 @@ function addon:OnEnable()
     addon:createRollFrame()
     -- Load options after we have some information about the guild
     addon:Options()
+
 end
 
 function addon:OnDisable()
@@ -258,44 +225,58 @@ end
 
 function addon:eventSetup(theAction)
 
-    util.AddDebugData(theAction, "event stuff started")
+    -- util.AddDebugData(theAction, "event stuff started")
 
-    -- Intentionally using 2 IF statements
+    -- Intentionally using multiple IF statements
     if theAction == "Register" then
 	    addon:RegisterEvent('GROUP_ROSTER_UPDATE',"eventHandler")
 	    addon:RegisterEvent('GROUP_JOINED',"eventHandler")
         addon:RegisterEvent("PLAYER_ENTERING_WORLD","eventHandler")
-		addon:RegisterEvent("CHAT_MSG_ADDON","eventHandler")
-        addon:RegisterEvent("CHAT_MSG_SYSTEM","eventHandler")
-        addon:RegisterEvent("START_LOOT_ROLL", "RollEvent")
-        addon:RegisterEvent("CANCEL_LOOT_ROLL", "RollCancelEvent")
-        addon:RegisterEvent("LOOT_HISTORY_UPDATE_ENCOUNTER", "UpdateEncounter")
 
-        addon:RegisterMessage("PL_RANK_CHECK","respondToRankCheck")     -- a player has asked to check your selection.  
-                                                                        -- If they are current ignore, if not send a targeted message with Data message
-        addon:RegisterMessage("PL_CONFIG_UPDATE","processConfigUpdate") -- The Loot Manager has updated the configuration
-
-        if self.PLdb.profile.config.doYouWantToDebug then
-            addon:RegisterMessage("PL_TEST_EVENT1","testMessages")        -- PL_RANK_CHECK
-            addon:RegisterMessage("PL_TEST_EVENT2","testMessages")        -- START_LOOT
-            addon:RegisterMessage("PL_TEST_EVENT3","testMessages")        -- CANCEL_LOOT_ROLL
-		end
 	end
 	
 	if theAction == "unRegister" then
 	    addon:UnregisterEvent('GROUP_ROSTER_UPDATE')
 	    addon:UnregisterEvent('GROUP_JOINED')
 		addon:UnRegisterEvent("PLAYER_ENTERING_WORLD")
-        addon:UnRegisterEvent("CHAT_MSG_ADDON")
-        addon:UnRegisterEvent("CHAT_MSG_SYSTEM")
-		addon:UnRegisterEvent("START_LOOT_ROLL")
-        addon:UnRegisterEvent("CANCEL_LOOT_ROLL")
-        addon:UnRegisterEvent("LOOT_HISTORY_UPDATE_ENCOUNTER")
     end
+
+    -- activate loot rolls
+    if theAction == "LootRoll" then
+		if thisAddon.priorityLootRollsActive then
+	        addon:RegisterEvent("START_LOOT_ROLL", "RollEvent")
+            addon:RegisterEvent("CANCEL_LOOT_ROLL", "RollCancelEvent")
+            addon:RegisterEvent("LOOT_HISTORY_UPDATE_ENCOUNTER", "UpdateEncounter")
+        else
+            addon:UnregisterEvent("START_LOOT_ROLL")
+            addon:UnregisterEvent("CANCEL_LOOT_ROLL")
+            addon:UnregisterEvent("LOOT_HISTORY_UPDATE_ENCOUNTER")
+	    end
+	end
+
+    if theAction == "MessageON" or theAction == "Register" then
+    	addon:RegisterEvent("CHAT_MSG_ADDON","eventHandler")            -- 
+        addon:RegisterEvent("CHAT_MSG_SYSTEM","eventHandler")           -- 
+
+        addon:RegisterComm("PL_RANK_CHECK","inPL_RANK_CHECK")        -- a player has asked to check your selection. - activated on delay after login  
+                                                                     -- If they are current ignore, if not send a targeted message with Data message
+        addon:RegisterComm("PL_CONFIG_UPDATE","inPL_CONFIG_UPDATE")  -- The Loot Manager has updated the configuration - activated by Loot Manager
+        addon:RegisterComm("PL_ADDON_ACTIVE","inPL_ADDON_ACTIVE")    -- The Loot Manager has updated the configuration - activated by loot manager
+        addon:RegisterComm("PL_ROLL_CHECK","inPL_ROLL_CHECK")      -- Asking the loot manager if Loot Rolls are active
+        -- addon:RegisterComm("PL_ADDON_CHECK","inPL_ADDON_CHECK")      -- TBD
+    end
+
+    if theAction == "MessageON" or theAction == "unRegister" then
+	    addon:UnRegisterEvent("CHAT_MSG_ADDON")
+        addon:UnRegisterEvent("CHAT_MSG_SYSTEM")
+	end 
+
+
 end
 
 function addon:eventHandler(theEvent, ...)
-    
+
+
         -- util.AddDebugData(theEvent, "eventHandler started")
 
         local thePrefix,theMessage,theChannel,theSender,theTarget = ...
@@ -305,7 +286,8 @@ function addon:eventHandler(theEvent, ...)
         end 
 		
     	if theEvent == "GROUP_ROSTER_UPDATE" then  
-		    --  we only need to worry about the roster if someone open the addon to look at stuff while we are looking at it
+		    --  if a new person joins then reload raidUnit
+            -- check what triggers this as well so we only get it on joining a raid not on rearranging groups
 			
         elseif theEvent == "GROUP_JOINED" then
              addon:joinedRaid()
@@ -317,44 +299,23 @@ function addon:eventHandler(theEvent, ...)
 			    C_ChatInfo.RegisterAddonMessagePrefix(MyAddOnName)
 		    end
             if isLogin then
-                addon:buildLoginMessage()
+                -- addon:buildPL_ADDON_CHECK()
 			end
 
 		elseif theEvent == "CHAT_MSG_SYSTEM" then
             local theMessageIn = ...
-            addon:chatMsgFilter(theMessageIn)
+            addon:inCHAT_MSG_SYSTEM(theMessageIn) -- a guild member logged in
 
 		elseif theEvent == "CHAT_MSG_ADDON" then
 
             if thePrefix == MyAddOnName then 
-                -- decompress, decrypt and de anything else to the inbound message
-				local newMessage = addon:processMessage(theMessage)                     
-                addon:messageInUpdateRank(newMessage)
+  				local newMessage = addon:processMessage(theMessage)                     
+                -- and then do stuff
 			end
 		end
 end                           -- Actions assigned to events
 
-function addon:testMessages(theEvent,theMessageIn,...)
-    util.AddDebugData(theEvent, "Test message Received: Event")
-    util.AddDebugData(theMessageIn, "Test message Received: Message")
-
-    util.AddDebugData(self.PLdb.profile.config.GUI.border,"GUI config data")
-     
-   if theEvent == "PL_TEST_EVENT1" then -- "PL_RANK_CHECK" 
-		addon:respondToRankCheck(theEvent,theMessageIn,...)
-    end
-
-    if theEvent == "PL_TEST_EVENT2" then -- "START_LOOT"
-		addon:RollEvent()
-	end
-
-    if theEvent == "PL_TEST_EVENT3" then -- "CANCEL_LOOT_ROLL"  
-		addon:RollEvent()
-	end
-
-end
-
------------ ROSTER AND PROFILE RELATED FUNCTIONS -----------------------
+----------- PROFILE RELATED FUNCTIONS -----------------------
 function addon:OnNewProfile(eventName, db, profile)
 
 	--Set the dbVersion to the most recent, as defaults for the new profile should be up-to-date
@@ -368,7 +329,13 @@ function addon:OnProfileChanged(eventName, db, newProfile)
 
 end   
 
-function loadGuildRoster()
+function addon:FullRefresh()
+    UpdateMinimapIcon()
+end                            -- TO BE COMPLETED - Do we still need this as a function.  Include anything that happens after a profile update
+
+----------- ROSTER RELATED FUNCTIONS -----------------------
+
+function loadGuildMembers()
 -- Build the list of guild members
 -- based on their rank.  Store then in the DB by adding or deleting as required along with the addon version details if any
 --
@@ -384,7 +351,7 @@ function loadGuildRoster()
     thisAddon.roster = {} 
 
     -- guild unit is the list of all current guild members + extra data about the addon based on rank
-    guildUnit = addon.PLdb.profile.config.guildMembers
+    thisAddon.guildUnit = addon.PLdb.profile.config.guildMembers
 
     for gmc=1,numTotalGuildMembers do
         local memberName, _, memberRankIndex, _, _, _, _, _, memberIsOnline, _, _, _, _, _, _, _, memberGUID = GetGuildRosterInfo(gmc)
@@ -405,7 +372,9 @@ function loadGuildRoster()
         -- if they do not the rank of an officer and are  in the officers list then remove them
         if not util.hasValue(addon.PLdb.profile.config.guildOfficerRanks,memberRankIndex) and
             util.hasValue(addon.PLdb.profile.config.officerList,memberName) then
-            position = keyFromValue(addon.PLdb.profile.config.officerList,memberName)
+            --util.AddDebugData(addon.PLdb.profile.config.officerList,"Officer  list")
+            --util.AddDebugData(memberName,"memberName")
+            position = util.keyFromValue(addon.PLdb.profile.config.officerList,memberName)
             table.remove(addon.PLdb.profile.config.officerList,position)
 		end
 
@@ -420,6 +389,8 @@ function loadGuildRoster()
 		else
             iAmTheGM = false 
 		end
+        util.AddDebugData(iAmTheGM,"Am I the GM ? ")
+        util.AddDebugData(memberRankIndex,"My Rank Index ")
 
         -- If I am the loot manager then lets flag that
         if addon.PLdb.profile.config.nameLootManager == util.unitname(UnitName("player")) and
@@ -456,7 +427,7 @@ function loadGuildRoster()
 			       end 
 
                else
-                   util.AddDebugData(memberFound,"Found in existing DB "..memberName)
+                   -- util.AddDebugData(memberFound,"Found in existing DB "..memberName)
                    -- We don't need to add them to the config file
 			   end
 		 else
@@ -467,17 +438,64 @@ function loadGuildRoster()
     util.AddDebugData(memberNames,"Members that we found to validate")
 
     local i = 1
-    while i < #guildUnit do
-	    if not util.hasValue(memberNames,guildUnit[i].unitName) then
-            util.AddDebugData(guildUnit[i].unitName,"Record removed from guild data")
-            table.remove(guildUnit,i) -- remove from the record of raiders in the database to capture and changes
+    while i < #thisAddon.guildUnit do
+	    if not util.hasValue(memberNames,thisAddon.guildUnit[i].unitName) then
+            -- util.AddDebugData(guildUnit[i].unitName,"Record removed from guild data")
+            table.remove(thisAddon.guildUnit,i) -- remove from the record of raiders in the database to capture and changes
         else
-            util.AddDebugData(guildUnit[i].unitName,"Record NOT removed from guild data")
+            -- util.AddDebugData(guildUnit[i].unitName,"Record NOT removed from guild data")
             i = i + 1
 		end
 	end
 	    
-    -- util.AddDebugData(guildUnit,"Should be the correct guild list after changes")
+    -- util.AddDebugData(thisAddon.guildUnit,"Should be the correct guild list after changes")
+end                         -- load and process the guild roster to identify roles and load data
+
+function loadRaidMembers()
+    local numMembers = GetNumGroupMembers()
+	local playerName = util.unitname('player')
+    local unitCount, unitCountHold = 2              -- I am position 1 so always start at 2
+    for i=1,MAX_RAID_MEMBERS do      
+		--name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML = GetRaidRosterInfo(raidIndex)
+
+        local unitID = thisADdon.raidUnit[i]
+        local unitName = GetRaidRosterInfo(i) or "none"
+        local itsMe = UnitIsUnit('player',unitID)
+
+        -- util.AddDebugData(unitName,"Unitname in raid roster")
+
+        if unitName ~= "none" then
+            local guildName, _, _, guildrealm = GetGuildInfo(unitID)
+            
+            if guildRealm == nil then                   -- if its my server then the realm will be "nil" so set it to the correct name
+			    guildRealm = GetRealmName()
+            end
+
+            -- its the same guild name on the same realm
+            if guildName == addon.PLdb.profile.config.myGuildName and guildRealm == addon.PLdb.profile.config.myGuildRealm then
+
+                -- if its me force it into roster position 1
+                if unitName and itsMe then 
+                    unitCountHold = unitCount
+                    unitCount = 1
+			    end
+
+                if unitName and not util.hasValue(thisAddon.raidUnit,unitID) then                -- if the unit does not already exist and its not me
+				    thisAddon.raidUnit[unitCount] = {}
+                    thisAddon.raidUnit[unitCount].unitID = unitID     
+                    thisAddon.raidUnit[unitCount].unitName = unitName 
+                end
+
+                -- if its me then put things back to normal and continue
+                if unitName and itsMe then  
+                    rosterCount = rosterCountHold
+				else
+                    rosterCount = rosterCount + 1
+			    end
+                    
+            end
+		end
+    end
 end
 
 function updateRosterToGuild()
@@ -485,14 +503,14 @@ function updateRosterToGuild()
 	wipe(thisAddon.roster) 
     local rosterCount = 1   
 	
-    for idx,guildMember in ipairs(guildUnit) do
+    for idx,guildMember in ipairs(thisAddon.guildUnit) do
 	
         --if util.hasValue(addon.PLdb.profile.config.guildRaidRanks,guildMember.unitRank) then
 
             -- The first unit is me becuase wee forced that when loading guildUnit
 	        local notMe = not UnitIsUnit('player',guildMember.unitName) 
 
-            util.AddDebugData(util.getShortName(guildMember.unitName),"Guild member added to headings")
+            -- util.AddDebugData(util.getShortName(guildMember.unitName),"Guild member added to headings")
 
             thisAddon.roster[rosterCount] = {}
             thisAddon.roster[rosterCount].unitID = rosterCount                                  -- does not really matter for the guild roster     
@@ -511,81 +529,37 @@ function updateRosterToGuild()
             rosterCount = rosterCount + 1
 		--end			
 	end
-end
+end                     -- change what is displayed in the table frame to guild members
 
-function addon:updateRosterToRaid()
+function updateRosterToRaid()
  -- make sure I am number 1 in the roster
 
 	wipe(thisAddon.roster) 
 
-	local playerName = util.unitname('player')
-    local rosterCount, rosterCountHold = 2              -- I am position 1 so always start at 2
+    local rosterCount = 1
 
     if IsInRaid() then
 
         for i=1,MAX_RAID_MEMBERS do      
-			--name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML = GetRaidRosterInfo(raidIndex)
 
-            local unitID = raidUnit[i]
-            local unitName = GetRaidRosterInfo(i) or "none"
-            local itsMe = UnitIsUnit('player',unitID)
+			thisAddon.roster[i] = {}
+            -- thisAddon.roster[i].unitID = unitID     
+            thisAddon.roster[i].unitName = thisAddon.raidUnit[i].unitName 
 
-            -- util.AddDebugData(unitName,"Unitname in raid roster")
+            local memberRecord = getGuildMember(thisAddon.raidUnit[i].unitName)
 
-            if unitName ~= "none" then
-                local guildName, _, _, guildrealm = GetGuildInfo(unitID)
-            
-                if guildRealm == nil then                   -- if its my server then the realm will be "nil" so set it to the correct name
-			        guildRealm = GetRealmName()
-                end
-
-                -- its the same guild name on the same realm
-                if guildName == addon.PLdb.profile.config.myGuildName and guildRealm == addon.PLdb.profile.config.myGuildRealm then
-
-                    util.AddDebugData(unitName,"Found a guild member in the raid")
-
-                    -- if its me force it into roster position 1
-                    if unitName and itsMe then 
-                        rosterCountHold = rosterCount
-                        rosterCount = 1
-			        end
-
-                    if unitName and not util.hasValue(thisAddon.roster,unitID) then                -- if the unit does not already exist and its not me
-                        util.AddDebugData(rosterCount,"Raid member added to position")
-				        thisAddon.roster[rosterCount] = {}
-                        thisAddon.roster[rosterCount].unitID = unitID     
-                        thisAddon.roster[rosterCount].unitName = unitName 
-
-                        local memberRecord = getGuildMember(unitName)
-
-                        if memberRecord then
-                            thisAddon.roster[rosterCount].hasAddon = memberRecord[1]            
-                            thisAddon.roster[rosterCount].lastCheck = memberRecord[2]              
-                            thisAddon.roster[rosterCount].configVersion = memberRecord[3]   
-                        end
-                    end
-
-                    -- if its me then put things back to normal and continue
-                   if unitName and itsMe then  
-                        rosterCount = rosterCountHold
-				   else
-                       rosterCount = rosterCount + 1
-			       end
-                    
-                end
-			end
+            if memberRecord then
+                thisAddon.roster[i].hasAddon = memberRecord[1]            
+                thisAddon.roster[i].lastCheck = memberRecord[2]              
+                thisAddon.roster[i].configVersion = memberRecord[3]   
+            end
         end
     end
-    
-end                           
+end                      -- change what is displayed in the table frame to raid members  
 
 function updateRosterToTestData()
 
-end
-
-function addon:FullRefresh()
-    UpdateMinimapIcon()
-end                            -- TO BE COMPLETED - Do we still need this as a function
+end                  -- change what is displayed to be test data for demo mode
 
 ------------- FUNCTIONS TO SUPPORT MINIMAP BUTTON ACTIONS --------------------
 
@@ -597,9 +571,44 @@ function addon:OpenOptions()
     if dialog then
         dialog:EnableResize(false)
     end
-end                            -- Open the options panel - Do we still need this as a function
+end                             -- Open the options panel - Do we still need this as a function
 
 ------------- FRAME SETUP FUCTIONS ---------------------------------------
+
+function addon:displayWelcomeImage()
+    
+    util.AddDebugData(addon.PLdb.profile.config.welcomeImage,"WeLcome image Y/N")
+
+    if addon.PLdb.profile.config.welcomeImage then 
+
+        addon.welcomeImage = CreateFrame("Frame", 'welcomeImageFrame' , UIParent) 
+        addon.welcomeImage:SetPoint("CENTER")
+        -- self.welcomeImage:SetAllPoints()
+        addon.welcomeImage:SetSize(768,768)
+
+        local bg = addon.welcomeImage:CreateTexture()
+        bg:SetAllPoints(addon.welcomeImage)
+        bg:SetTexture("Interface\\AddOns\\PriorityLoot\\Media\\Textures\\WelcomePicture")
+        -- bg:SetTexCoord(0, 1, 0, 1)
+        bg:Show()
+
+        local btn = CreateFrame("Button", nil, addon.welcomeImage, "UIPanelButtonTemplate")
+        btn:SetText("Close")
+        btn.Text:SetTextColor(1, 1, 1)
+        btn:SetWidth(100)
+        btn:SetHeight(30)
+        btn:SetPoint("BOTTOM", 190, 23)
+        btn.Left:SetDesaturated(true)
+        btn.Right:SetDesaturated(true)
+        btn.Middle:SetDesaturated(true)
+        btn:SetScript("OnClick", function()
+            addon.welcomeImage:Hide()
+        end)
+        addon.welcomeImage:Show()
+        addon.PLdb.profile.config.welcomeImage = false
+    end
+
+end                      -- display the welcome image the first time the addon loads
 
 function buildMainLootWindow()
 --[[
@@ -619,6 +628,7 @@ function buildMainLootWindow()
     thisAddon.MainLootFrame:SetWidth(addon.PLdb.profile.config.setFrameWidth)
     thisAddon.MainLootFrame:SetHeight(600)
     thisAddon.MainLootFrame:SetLayout("Flow")
+    thisAddon.MainLootFrame:EnableResize(false)
         util.AddDebugData(thisAddon.MainLootFrame,"Main Frame")
 
     -- Create the horizontal group to hold the columns
@@ -679,7 +689,8 @@ function buildFilterColumnTop()
 		    end
             guildRadio:ToggleChecked()
             fillTableColumn()
-	    end)
+	end)
+    raidRadio:SetDisabled(not IsInRaid())
     
     guildRadio:SetLabel("Guild")
     guildRadio:SetWidth(100)
@@ -846,6 +857,7 @@ function buildFilterColumnBottom()
 		    fillTableColumn()      
             statusText(format("Enter your priorities for currently filtered items.  %i will remove a priority.",util.Colorize("0", "accent")))
 	end)
+    enterPriorities:SetDisabled(IsInRaid())
     thisAddon.filterColumn:AddChild(enterPriorities)
 
     local showLootHistory = AceGUI:Create("Button")
@@ -907,26 +919,6 @@ function buildTableColumn()
 
 end
 
-function fillTableColumn()
-    
-    if not finishedInitalising then
-	    return
-	end
-    
-	if headingsExist then
-	    thisAddon.headingContainer:ReleaseChildren()
-    else
-        headingsExist = true
-	end
-
-    -- add headings
-    addTableColumnHeadings()
-
-    -- add data
-    refreshDataInTable()
-
-end                                 -- Start the process for filling the user selections
-
 function addTableColumnHeadings()
     if tableColumnContent == "S" then
 	    playerPriorityHeadings()
@@ -935,7 +927,7 @@ function addTableColumnHeadings()
     elseif tableColumnContent == "L" then
 	    lootHistoryHeadings()
     end
-end                          -- Add headings based on what is being displayed
+end                    -- Add headings based on what is being displayed
 
 function playerPriorityHeadings()
 
@@ -944,12 +936,12 @@ function playerPriorityHeadings()
     local header2 = AceGUI:Create("SimpleGroup")
     local widthOfIcon = 34                                      -- pixels
     local widthOfCharacter = 5.6                                -- assuming Courier 12 point
-    local lastOverhang1 = addon.PLdb.profile.config.GUI.nameLeftMargin  --  True up some initial indent ot make thigns line up
-    local lastOverhang2 = -30                                    -- Allow for the column of item icons for the second header row
+    local lastOverhang1 = addon.PLdb.profile.config.GUI.nameLeftMarginTop  --  True up some initial indent ot make thigns line up
+    local lastOverhang2 = addon.PLdb.profile.config.GUI.nameLeftMarginBottom                                    -- Allow for the column of item icons for the second header row
 
     -- Create a custom font object
-    local courierFont = CreateFont("Courier12")                 -- use a font that has a fixed width
-    courierFont:SetFont("Interface\\Addons\\PriorityLoot\\media\\Fonts\\courier.ttf",12,"")           
+    -- local courierFont = CreateFont("Courier12")                 -- use a font that has a fixed width
+    -- courierFont:SetFont("Interface\\Addons\\PriorityLoot\\media\\Fonts\\courier.ttf",10,"")           
     
     header1:SetFullWidth(true)
     header1:SetLayout("Flow")
@@ -983,7 +975,7 @@ function playerPriorityHeadings()
         local label = AceGUI:Create("Label")
         label:SetText(nameText)
         label:SetWidth(headingWidth)                            -- Adjust the width as needed
-        label:SetFontObject(courierFont)                        -- set the font to courier
+        -- label:SetFontObject(courierFont)                        -- set the font to courier
         local spacer = AceGUI:Create("Label")
         spacer:SetWidth(spacerSize)                             -- Adjust the width as needed
 
@@ -1024,7 +1016,7 @@ function playerPriorityHeadings()
     -- tableColumn - Add the header group to the second column
     thisAddon.headingContainer:AddChild(header1)  
     thisAddon.headingContainer:AddChild(header2)  
-end
+end                    -- Show the headings with player names (guild or raid)
 
 function enterPriorityHeadings()
     -- add the button row
@@ -1036,13 +1028,13 @@ function enterPriorityHeadings()
     local widthOfCharacter = 5.6                                -- assuming Courier 12 point
 
     -- Create a custom font object
-    local courierFont = CreateFont("Courier12")                 -- use a font that has a fixed width
-    courierFont:SetFont("Interface\\Addons\\PriorityLoot\\media\\Fonts\\courier.ttf",12,"")           
+    --local courierFont = CreateFont("Courier12")                 -- use a font that has a fixed width
+    --courierFont:SetFont("Interface\\Addons\\PriorityLoot\\media\\Fonts\\courier.ttf",12,"")           
     
     header1:SetFullWidth(true)
     header1:SetLayout("Flow")
 
-    -- tableColumn -  Test Headings
+    -- tableColumn 
     headerLabels = getListOfHeadingsToDisplay()
 
     util.AddDebugData(headerLabels,"The enter priority headings")
@@ -1055,14 +1047,15 @@ function enterPriorityHeadings()
 	    local label = AceGUI:Create("Label")
         label:SetWidth(40)
         label:SetText(headingInfo[2])
-        label:SetFontObject(courierFont)     
+        label:SetFontObject(courierFont)   
+        label:SetColor(0, 1, 0) -- Red color (RGB: 1, 0, 0)
 
         header1:AddChild(spacer)
         header1:AddChild(label)
 	end
     thisAddon.headingContainer:AddChild(header1)  
     
-end
+end                     -- change the headings to the headings when you enter priorities
 
 function enterPriorityButtons()
 	local buttonRow = AceGUI:Create("SimpleGroup")
@@ -1079,12 +1072,20 @@ function enterPriorityButtons()
 	    end)
     buttonRow:AddChild(clearPriority)
 
+   local clearPriority = AceGUI:Create("Button")
+    clearPriority:SetText("Import Raidbots")
+    clearPriority:SetWidth(200)
+    clearPriority:SetCallback("OnClick", function()
+            statusText("This function is not implemented yet ")
+	    end)
+    buttonRow:AddChild(clearPriority)
+
     thisAddon.headingContainer:AddChild(buttonRow)  
-end
+end                      -- Add any buttons required when entering priorities
 
 function lootHistoryHeadings()
 
-end
+end                       -- change the table frame to show the loot history with the same filters
 
 function resetCheckboxGroup(theGroup,theSetting)
     util.AddDebugData(theGroup,theSetting)
@@ -1094,7 +1095,7 @@ function resetCheckboxGroup(theGroup,theSetting)
 		    theCheckbox:SetDisabled(not theSetting)
 		end
 	end
-end                              -- If we have a group of checkboxes we want to disable or enable use this
+end                        -- If we have a group of checkboxes we want to disable or enable use this
 
 function checkPlayerAddon(rosterRecIn)
     local addonVersion = "Not Loaded"
@@ -1123,7 +1124,28 @@ function checkPlayerAddon(rosterRecIn)
 	end
 
 	return addonVersion,configVersion,lastCheck,errorCode
-end
+end                                -- get the deatsil of the player config nad addon versions
+
+function fillTableColumn()
+    
+    if not finishedInitalising then
+	    return
+	end
+    
+	if headingsExist then
+	    thisAddon.headingContainer:ReleaseChildren()
+    else
+        headingsExist = true
+	end
+
+    -- add headings
+    addTableColumnHeadings()
+
+    -- add data
+    refreshDataInTable()
+
+end                                 -- Start the process for filling the user selections
+
 
 ------------- FRAME DATA FUCTIONS ---------------------------------------
 
@@ -1195,7 +1217,7 @@ function reuseFrame()
         thisAddon.frameBeingDisplayed = totalFrames + 1                     -- increase the number displayed
         return 0                                                            -- create one
 	end
-end                                      -- Icons are in frames.  reuse the frames rather than keep creating them to save resources.
+end                                -- Icons are in frames.  reuse the frames rather than keep creating them to save resources.
 
 function getRanksByPlayer(itemId)         
 local returnRow = {}
@@ -1205,9 +1227,9 @@ local counter = 0
 -- local currentPlayersShown = getListOfHeadingsToDisplay()
 
     -- Loop through the list of players being displayed
-    for _,player in pairs(guildUnit) do 
+    for _,player in pairs(thisAddon.guildUnit) do 
         local playerNumber = 0      -- What record in the table is that player
-        util.AddDebugData(player,"Player details for priorities")
+        -- util.AddDebugData(player,"Player details for priorities")
 
 	    -- Find the record that belongs to the current player if any in the stored priorities
 		playerNumber = getPlayerInformation(player.unitName,0,"PP")
@@ -1431,36 +1453,31 @@ function enterMyPriorities(theScrollContainer, myPriority, itemID,itemName)   --
 
         -- Add row to table
         theScrollContainer:AddChild(row)
-end                               -- Called from addDataToTable to add the items and item details to enter my Priorities
+end                         -- Called from addDataToTable to add the items and item details to enter my Priorities
 
 function getListOfHeadingsToDisplay()
     local returnHeadings = {"Hold"}
     local testData = addon.PLdb.profile.config.useTestData 
 
     if tableColumnContent == "S" then
-        if testData then                                    -- Display player names
-	            -- returnHeadings = thisAddon.GuildTestData
-                updateRosterToTestData()
-        else
+        --if testData then                                    -- Display player names
+	       --     -- returnHeadings = thisAddon.GuildTestData
+        --        updateRosterToTestData()
+        --else
 		    if thisAddon.filters.displayGuildNames then
 		        util.AddDebugData("Loading Guild names","getListOfHeadingsToDisplay")
                 updateRosterToGuild()
 		    else
 		        util.AddDebugData("Loading Raid names","getListOfHeadingsToDisplay")
-                addon:updateRosterToRaid()
+                updateRosterToRaid()
 		    end
-            -- changes to use the roster for priorities
-			--for idx,rosterRec in ipairs(thisAddon.roster) do   
-            --        returnHeadings[idx] = rosterRec.unitName
-            --end
-            
-	    end
+           
+	    -- end
         return true -- true means use roster
 	elseif tableColumnContent == "E" then                   -- Enter Priorities
         --  space then text then space then text....
 	    returnHeadings = {
-		        {5,"Item"},
-		        {5,"Type"},
+		        {50,"Type"},
 		        {60,"Name"},
 			    {110,"Class"},
 			    {115,"Priority"},
@@ -1513,7 +1530,7 @@ function itemFilteredIn(itemID)
     -- util.AddDebugData(itemLocationToFind.."("..startIndexL..") - "..itemArmourTypeToFind.."("..startIndexA..")","searching for")
     
     if startIndexL==0 and startIndexA==0 then
-        -- This item does not meet the class or subclass constraints s oreject it
+        -- This item does not meet the class or subclass constraints so reject it
 	    return false
 	else
         -- Now we have a matching item start to ap0ply other filter elements
@@ -1526,7 +1543,7 @@ function itemFilteredIn(itemID)
             end
         end
         if thisAddon.filters.onlyNoPriority then
-            if getPlayerInformation("Any",itemID,"AP") then -- does anyone have this item selected
+            if getPlayerInformation("Any",itemID,"AP") > 0 then -- does anyone have this item selected
                 return false
 			else
 			    return true
@@ -1552,12 +1569,20 @@ end
 function addon:joinedRaid()
 
     if IsInRaid() then
-	
+
+        -- numMembers = GetNumGroupMembers([groupType])
+        loadRaidMembers()
+
+        if iAmTheLootManager and not thisAddon.priorityLootRollsActive then
+		    addon:yesnoBox("Do you wish to swap the Priority Loot allocations state for this raid ?","activateLootRolls")
+		end
+
+	    if not thisAddon.priorityLootRollsActive and isPlayerInRaid(addon.PLdb.profile.config.nameLootManager) then
+            addon:buildPL_ROLL_CHECK(addon.PLdb.profile.config.nameLootManager)  -- send a message to find out if loot rolls should be active 		
+		end
+
 	end
 
-        -- Check am I in a raid
-        -- is it a guild raid
-        -- turn on the checkbox at the top ofhte filter coluimn
         -- make sure every has my latest priorities
         -- lock my abililty to change my priorities
         -- 
@@ -1565,713 +1590,9 @@ function addon:joinedRaid()
 end
 
 
-------------- LOOTING AND ROLLING FUNCTIONS ----------------------------------
+------------- VISUAL SUPPORT FUNCTIONS ----------------------------------
 
-local encounter = 0
 
-function addon:UpdateEncounter(event, encounterID)
-    if encounter ~= encounterID then
-        encounter = encounterID
-        util.AddDebugData(encounterID,"Encounter updated ")
-    end
-end
-
-function addon:GetQualitiy(quality) 
-    if quality == 1 then
-        return 1, 1, 1
-    elseif quality == 2 then
-        return 0.1, 1, 0.1
-    elseif quality == 3 then
-        return 0, 0.44, 0.87
-    elseif quality == 4 then
-        return 0.64, 0.21, 0.93
-    elseif quality == 5 then
-        return 1, 0.5, 0
-    else
-        return 0.6, 0.6, 0.6
-    end
-end
-
-function addon:RollCancelEvent(event, rollID)
-    for _, item in ipairs(lootRoll.items) do
-        if item.rollID == rollID then
-            addon:RemoveItem(item.frame)
-        end
-    end
-end
-
-function addon:RollEvent(event, rollID)
-    GroupLootFrame1:Hide()
-    GroupLootFrame2:Hide()
-    GroupLootFrame3:Hide()
-    GroupLootFrame4:Hide()
-    GroupLootContainer:Hide()
-    local texture, name, _, quality, bindOnPickUp, canNeed, canGreed, canDisenchant, _, _, _, _, canTransmog = GetLootRollItemInfo(rollID)
-    local itemID = select(2, GetLootRollItemInfo(rollID))
-    local _, itemLink, _, itemLevel = GetItemInfo(itemID)
-    -- itemData = {rollID, iconTexture, itemLevel, bop, itemName, canNeed, canGreed, canDisenchant, canTransmog}
-    local itemData = {
-        rollID = rollID,
-        iconTexture = texture,
-        itemLevel = itemLevel,
-        quality = quality,
-        itemName = name,
-        bop = bindOnPickUp,
-        canNeed = canNeed,
-        canGreed = canGreed,
-        canDisenchant = canDisenchant,
-        canTransmog = canTransmog,
-    }
-
-    util.AddDebugData(itemData,"Item detail for Loot roll")
-
-    if canNeed then
-	    addon:AddItem(itemData)
-    end
-
-    C_Timer.After(0.5, function ()
-        if #lootRoll.items ~= 0 then
-            addon:OpenGUI()
-        end
-    end)
-    
-end
-
-function addon:createRollFrame()
-	local width = self.PLdb.profile.config.GUI.width or 500
-    local height = self.PLdb.profile.config.GUI.height or 400
-
-    lootRoll.frame = CreateFrame("Frame", "MyLootRollContainer", UIParent)
-    lootRoll.frame:SetSize(width, height)
-    lootRoll.frame:SetPoint(self.PLdb.profile.config.GUI.point, UIParent, self.PLdb.profile.config.GUI.point, self.PLdb.profile.config.GUI.xPos, self.PLdb.profile.config.GUI.yPos)
-    lootRoll.frame:SetScale(self.PLdb.profile.config.GUI.scale)
-    
-	lootRoll.bg = lootRoll.frame:CreateTexture(nil, "BACKGROUND")
-	lootRoll.bg:SetAllPoints(true)
-	lootRoll.bg:SetColorTexture(0.1,0.1,0.1,0.8)
-    lootRoll.bg:Hide()
-
-    lootRoll.scrollFrame = CreateFrame("ScrollFrame", nil, lootRoll.frame, "UIPanelScrollFrameTemplate")
-    lootRoll.scrollFrame:SetAllPoints(true)
-	lootRoll.scrollFrame.ScrollBar:Hide()
-    
-    lootRoll.contentFrame = CreateFrame("Frame", nil, lootRoll.scrollFrame)
-    lootRoll.contentFrame:SetSize(width, height)
-    lootRoll.scrollFrame:SetScrollChild(lootRoll.contentFrame)
-    
-    lootRoll.items = {}
-    lootRoll.nextY = 0
-
-	lootRoll.frame:Hide()
-end
-
-local protection = false
-
-local function getClassColoredName(playerName, className, roll)
-    local classColors = RAID_CLASS_COLORS[className]
-    if not classColors then
-        classColors = { r = 1, g = 1, b = 1 } 
-    end
-    local coloredPlayerName = string.format("|cff%02x%02x%02x%s|r", 
-                                            classColors.r * 255, 
-                                            classColors.g * 255, 
-                                            classColors.b * 255, 
-                                            playerName)
-    local result = string.format("%s |cffffffffRoll %d|r", coloredPlayerName, roll)
-    return result
-end
-
-local function getInfos(itemData)
-    --local states = {"Need", "Need", "Transmog", "Greed", "Pass", "Pass"}
-    if encounter ~= 0 then
-        local stateList = {0, 0, 0, 0}
-        local drops = C_LootHistory.GetSortedDropsForEncounter(encounter)
-        for _, drop in ipairs(drops) do
-            local item = C_Item.GetItemNameByID(drop.itemHyperlink)
-            if item == itemData.itemName then
-                GameTooltip:AddLine(" ")
-                for _, rollers in ipairs(drop.rollInfos) do
-                    local playerName = rollers.playerName
-                    local playerClass = rollers.playerClass
-                    local roll = rollers.roll or 0
-                    if rollers.state == 0 or rollers.state == 1 then
-                        stateList[1] = stateList[1] + 1
-                    elseif rollers.state == 2 then
-                        stateList[2] = stateList[2] + 1
-                    elseif rollers.state == 3 then
-                        stateList[3] = stateList[3] + 1
-                    elseif rollers.state == 4 or rollers.state == 5 then
-                        stateList[4] = stateList[4] + 1
-                    end
-                    if rollers.state == 4 or rollers.state == 5 or roll == 0 then
-                        return
-                    end
-                    local fany = getClassColoredName(playerName, playerClass, roll)
-                    GameTooltip:AddLine(fany)
-
-
-                end
-                GameTooltip:AddLine("  ")
-                GameTooltip:AddLine("Needed: "..stateList[1].." Transmog: "..stateList[2].." Greeded: "..stateList[3].." Passed: "..stateList[4])
-            end
-        end
-    end
-end
-
-function addon:AddItem(itemData)
-    local width = lootRoll.GUI.width or 500 
-    local itemHeight = lootRoll.GUI.itemHeight or 48 
-    local IconSize = math.min(itemHeight, 48)
-
-    -- Create Item Frame
-    local itemFrame = CreateFrame("Frame", nil, lootRoll.contentFrame)
-    itemFrame:SetSize(width, itemHeight)
-    itemFrame:SetPoint("TOPLEFT", lootRoll.contentFrame, "TOPLEFT", 0, -lootRoll.nextY)
-
-    -- Create icon frame
-    local iconFrame = CreateFrame("Frame", nil, itemFrame)
-    iconFrame:SetSize(IconSize, IconSize)
-    iconFrame:SetPoint("LEFT", itemFrame, "LEFT", 10, 0)
-
-    if itemData.rollID then
-        iconFrame:EnableMouse(true)
-
-        iconFrame:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetLootRollItem(itemData.rollID) 
-            getInfos(itemData)
-            GameTooltip:Show()
-        end)
-
-        iconFrame:SetScript("OnLeave", function(self)
-            GameTooltip:Hide()
-        end)
-    end
-    
-
-    local iconTexture = iconFrame:CreateTexture(nil, "BACKGROUND")
-    iconTexture:SetAllPoints(true)
-    iconTexture:SetTexture(itemData.iconTexture)
-    if lootRoll.GUI.zoomIcon then
-        iconTexture:SetTexCoord(0.1, 0.9, 0.1, 0.9)
-    end
-    
-
-	CreateBorder(iconFrame)
-    
-    -- Add item level text
-    local itemLevelText = iconFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    itemLevelText:SetPoint("BOTTOM", iconFrame, "BOTTOM", 0, 5)
-    itemLevelText:SetText(itemData.itemLevel)
-    itemLevelText:SetTextColor(1, 1, 1, 1)
-    PriorityLoot:ApplyFontString(itemLevelText)
-
-    -- Add progress bar
-    local duration = itemData.rollID and (C_Loot.GetLootRollDuration(itemData.rollID) or 0) / 1000 or 60
-    local startTime = GetTime()
-    local r,g,b = addon:GetQualitiy(itemData.quality)
-
-	local progressBarFrameBG = CreateFrame("StatusBar", nil, itemFrame)
-    progressBarFrameBG:SetSize(width - IconSize - 20, 14)
-    progressBarFrameBG:SetPoint("BOTTOMLEFT", iconFrame, "BOTTOMRIGHT", 5, 0)
-    progressBarFrameBG:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
-    progressBarFrameBG:SetMinMaxValues(0, 1)
-    progressBarFrameBG:SetValue(100)
-    progressBarFrameBG:SetStatusBarColor(r,g,b, 0.4)
-
-    local progressBarFrame = CreateFrame("StatusBar", nil, itemFrame)
-    progressBarFrame:SetSize(width - IconSize - 20, 14)
-    progressBarFrame:SetPoint("BOTTOMLEFT", iconFrame, "BOTTOMRIGHT", 5, 0)
-    progressBarFrame:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
-    progressBarFrame:SetMinMaxValues(0, 1)
-    progressBarFrame:SetValue(100)
-    progressBarFrame:SetStatusBarColor(r,g,b, 1)
-
-    progressBarFrame:SetScript("OnUpdate", function(self, elapsed)
-        local timeLeft = duration - (GetTime() - startTime)
-        self:SetValue(timeLeft / duration)
-        if timeLeft <= 0 then
-            addon:RemoveItem(itemFrame)
-            self:SetScript("OnUpdate", nil)
-        end
-    end)
-
-	CreateBorder(progressBarFrame)
-    
-    local sparkTexture = progressBarFrame:CreateTexture(nil, "OVERLAY")
-    sparkTexture:SetSize(32, 32)
-    sparkTexture:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
-    sparkTexture:SetBlendMode("ADD")
-    
-    local function UpdateSpark()
-        local value = progressBarFrame:GetValue()
-        local minValue, maxValue = progressBarFrame:GetMinMaxValues()
-        local barWidth = progressBarFrame:GetWidth()
-        local sparkPosition = ((value - minValue) / (maxValue - minValue)) * barWidth
-        sparkTexture:SetPoint("CENTER", progressBarFrame, "LEFT", sparkPosition, 0)
-    end
-
-    UpdateSpark()
-
-    progressBarFrame:SetScript("OnValueChanged", UpdateSpark)
-    
-    -- Add item name text
-    local itemNameText = itemFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    itemNameText:SetPoint("BOTTOMLEFT", progressBarFrame, "TOPLEFT", 0, 10)
-    itemNameText:SetText(self:trimText(itemData.itemName))
-    itemNameText:SetTextColor(1, 1, 1, 1)
-    PriorityLoot:ApplyFontString(itemNameText)
-
-    -- Add buttons
-    local buttonSize = 24
-    local buttonOffsetX = -2
-    local buttons = {
-        {name = "Pass", texture = "Interface\\Buttons\\UI-GroupLoot-Pass-Up", rollType = 0},
-        {name = "Disenchant", texture = "Interface\\Buttons\\UI-GroupLoot-DE-Up", rollType = 3, check = "canDisenchant"},
-        {name = "Transmog", texture = "Interface\\Minimap\\Tracking\\Transmogrifier", rollType = 4, check = "canTransmog"},
-        {name = "Greed", texture = "Interface\\Buttons\\UI-GroupLoot-Coin-Up", rollType = 2, check = "canGreed"},
-        {name = "Need", texture = "Interface\\Buttons\\UI-GroupLoot-Dice-Up", rollType = 1, check = "canNeed"},
-    }
-
-    local conditions = {
-        canNeed = itemData.canNeed,
-        canGreed = itemData.canGreed,
-        canDisenchant = itemData.canDisenchant,
-        canTransmog = itemData.canTransmog,
-    }
-
-    for i, buttonInfo in ipairs(buttons) do
-        local buttonFrame = CreateFrame("Frame", nil, itemFrame)
-        buttonFrame:SetSize(buttonSize, buttonSize)
-        buttonFrame:SetPoint("BOTTOMRIGHT", progressBarFrame, "TOPRIGHT", buttonOffsetX, 5)
-        
-        local buttonTexture = buttonFrame:CreateTexture(nil, "ARTWORK")
-        buttonTexture:SetAllPoints(true)
-        buttonTexture:SetTexture(buttonInfo.texture)
-
-        local canClick = conditions[buttonInfo.check] ~= false
-        
-        if not canClick then
-            buttonTexture:SetDesaturated(true)
-            buttonTexture:SetAlpha(0.1)
-            buttonFrame:EnableMouse(false)
-        else
-            buttonFrame:EnableMouse(true)
-            buttonFrame:SetScript("OnMouseDown", function()
-                if buttonInfo.rollType then
-                    if itemData.rollID then
-                        if lootRoll.GUI.protection then
-                            if protection then
-                                print("PriorityLoot >> ".. L["Protection enabled, please wait a couples seconds, you can disable or reduce in options!"])
-                                return
-                            else
-                                protection = true
-                                RollOnLoot(itemData.rollID, buttonInfo.rollType)
-                                addon:RemoveItem(itemFrame)
-                                C_Timer.After(lootRoll.GUI.protectionTimer, function ()
-                                    protection = false
-                                end)
-                            end
-                        else
-                            RollOnLoot(itemData.rollID, buttonInfo.rollType)
-                            addon:RemoveItem(itemFrame)
-                        end
-                    end
-                end
-            end)
-        end
-        
-        buttonFrame:SetScript("OnEnter", function()
-            GameTooltip:SetOwner(buttonFrame, "ANCHOR_RIGHT")
-            GameTooltip:SetText(buttonInfo.name, 1, 1, 1)
-            GameTooltip:Show()
-        end)
-        buttonFrame:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-        end)
-        
-        buttonOffsetX = buttonOffsetX - buttonSize - 10
-    end
-
-    if itemData.bop then
-        local itemBoP = itemFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-        itemBoP:SetPoint("BOTTOMRIGHT", progressBarFrame, "TOPRIGHT", buttonOffsetX, 10)
-        itemBoP:SetText("BoP")
-        itemBoP:SetTextColor(1, 0, 0, 1)
-        addon:ApplyFontString(itemBoP)
-    end
-
-    lootRoll.nextY = lootRoll.nextY + itemHeight + 4
-    lootRoll.contentFrame:SetSize(width, lootRoll.nextY)
-
-    table.insert(lootRoll.items, {frame = itemFrame, rollID = itemData.rollID})
-    return itemFrame
-end
-
-function addon:RemoveItem(itemFrame)
-    if itemFrame then
-        itemFrame:Hide()
-        itemFrame:SetParent(nil)
-        
-        for i, item in ipairs(lootRoll.items) do
-            if item.frame == itemFrame then
-                table.remove(lootRoll.items, i)
-                break
-            end
-        end
-
-        lootRoll.nextY = 0
-        for _, item in ipairs(lootRoll.items) do
-            item.frame:SetPoint("TOPLEFT", lootRoll.contentFrame, "TOPLEFT", 0, -lootRoll.nextY)
-            lootRoll.nextY = lootRoll.nextY + item.frame:GetHeight() + 4
-        end
-
-        lootRoll.contentFrame:SetSize(lootRoll.contentFrame:GetWidth(), lootRoll.nextY)
-
-        if #lootRoll.items == 0 then
-            encounter = 0
-            addon:HideGUI()
-        end
-    end
-end
-
-function addon:OpenGUI()
-    if not lootRoll.frame:IsShown() then
-        lootRoll.frame:Show()
-    end
-end
-
-function addon:HideGUI()
-    if lootRoll.frame:IsShown() then
-        lootRoll.frame:Hide()
-    end
-end
-
-------------- OTHER SUPPORT FUNCTIONS ----------------------------------
-
---- update data 
-
-function updatePlayerItemPriority(thePlayer,theItem,thePriority)
--- If its a new priority then add it
--- encrypt the priorities history data when its stored
-
-    local recToUpdate = 0
-    local itemToUpdate = getPlayerInformation(thePlayer,theItem,"PP") 
-    local numberOfPriorities = addon.PLdb.profile.config.numberOfPriorities  --  The number of priorities I am allowed to have active
-    local recUpdated,duplicatePriority,refreshFrame = false
-
-    if thePlayer == 1 then
-        recToUpdate = 1
-    else
-         recToUpdate = getPlayerInformation(thePlayer,"","PP")  
-	end
-
-    if thisAddon.priorityHistory[thePriority] then -- If the number is blocked then
-        util.Print(   format("%s: Priority %i is blocked and will not be added",util.Colorize("WARNING:", "accent",false),thePriority))
-	    statusText(format("%s: Priority %i is blocked and will not be added",util.Colorize("WARNING:", "accent",false),thePriority))
-        return false
-	end
-	
-    -- make the priority change for that item
-    for counter,itemLoot in ipairs(thisAddon.playerSelections[recToUpdate].playerLoot) do
-	
-        if itemLoot[2] == thePriority then
-		    duplicatePriority = true
-            util.AddDebugData(true,"Duplicate found")
-		end
-
-        if itemLoot[1] == theItem then
-      
-            if thePriority == 0  then
-                table.remove(thisAddon.playerSelections[recToUpdate].playerLoot, counter)
-                refreshFrame = true
-                return true,refreshFrame -- delete the record but leave other change to the user
-            end
-
-            -- if the item priority did not change then dont update it and dont update the version
-            if thisAddon.playerSelections[recToUpdate].playerLoot[counter][2] ~= thePriority then
-		        thisAddon.playerSelections[recToUpdate].playerLoot[counter][2] = thePriority
-                recUpdated = true -- we changed the item so now lets see what other things are required.
-			else
-                return false,refreshFrame -- no change required so do nothing more
-			end
-        end
-	end
-	
-    -- if a duplicate was entered go through the loop and move all the other prioties after what we entered up one 
-    if duplicatePriority and recUpdated then
-        util.AddDebugData(true,"Duplicate found and a record was updated")
-	    -- we need top start the loop again because we dont know what order the items are in
-        for counter,itemLoot in ipairs(thisAddon.playerSelections[recToUpdate].playerLoot) do
-            if itemLoot[2] >= thePriority and itemLoot[1] ~= theItem then
-                util.AddDebugData(true,"moving a priority")
-		        thisAddon.playerSelections[recToUpdate].playerLoot[counter][2] = itemLoot[2] + 1
-		    end
-		end
-        refreshFrame = true
-	end
-
-	-- if it does not already exist then insert it because we have already made a space
-    table.insert(thisAddon.playerSelections[recToUpdate].playerLoot, {theItem,thePriority})
-    return true,refreshFrame
-end
-
-function addon:processConfigUpdate(theEvent,theMessageIn,...)
-    -- Loop through the fields I have been sent and update them if the version sent is new than the version I have
-   
-    --util.AddDebugData(true, "processConfigUpdate: Started") 
-
-    local theMessage = addon:processMessage(theMessageIn)
-    local myConfigVersion = addon.PLdb.profile.config.configVersion
-
-    --util.AddDebugData(addon.PLdb.profile.config.configVersion, "processConfigUpdate: My version") 
-    --util.AddDebugData(theMessage[1][2], "processConfigUpdate: Incoming version") 
-
-    -- version must always be the first record
-    if myConfigVersion == theMessage[1][2] then
-	    return
-	end
-
-    for idx,newSetting in pairs(theMessage) do
-        addon.PLdb.profile.config[newSetting[1]] = newSetting[2]
-        util.AddDebugData(newSetting[2], newSetting[1].." has been updated")
-	end
-
-    ACR:NotifyChange(MyAddOnName)
-
-end 
-
--- getting, finding  data
-
-function IsPlayerInGuild()
-    return IsInGuild() and GetGuildInfo("player")
-end
-
-function addon:getGuildDetails()
-    
-    if IsPlayerInGuild() then
-
-        finishedInitalising = true 
-
-        addon.PLdb.profile.config.myGuildName, _ , _ , addon.PLdb.profile.config.myGuildRealm = GetGuildInfo("player")
-    
-        if addon.PLdb.profile.config.myGuildRealm == nil then
-            addon.PLdb.profile.config.myGuildRealm = GetRealmName()
-        end
-
-        util.AddDebugData(addon.PLdb.profile.config.myGuildName,"Guild found ")
-
-        loadGuildRoster()
-        fillTableColumn()
-
-    else
-        util.AddDebugData(true,"No guild found ")
-        addon.PLdb.profile.config.myGuildName = "ERROR:  NO guild found "
-    end
-end
-
-function getElementsFromRaids(whatToReturn,searchValue1,searchValue2) -- pass in"raid","boss" and a search value
--- "raid"            searchValue1={},searchValue2={}                     -- NOT USED
--- "bossList"        searchValue1={},searchValue2={}                     -- Get the list of bosses
--- "bossId"          searchValue1={position},searchValue2={}             -- Get the bossID if you know what boss it is e.g. the second boss
--- "bossname"        searchValue1={provide the bossId},searchValue2={}   -- Get the name based on the id
-
-    local returnArray = {}
-    lootTable = addon.PLdb.profile.config.bossLoot
-
-    if whatToReturn == "raid" then                     
-        return false
-
-    elseif whatToReturn == "bosslist" then     
-        table.insert(returnArray, "All")
-        for _, bossList in pairs(lootTable) do
-            table.insert(returnArray, bossList.bossName)
-            -- util.AddDebugData("Added Boss to dropdown", bossList.bossName)
-		end
-        return returnArray
-	
-    elseif whatToReturn == "bossId" then   
-        if searchValue1 == 1 then -- If "All" bosses was selected then ignore this
-		    return searchValue1
-		else
-            -- Add one place to the boss ID becuase the first item in the lookup is "All"
-            util.AddDebugData(lootTable[searchValue1-1].bossId, "Find BossID from position ")
-            return lootTable[searchValue1-1].bossId
-        end
-
-    elseif whatToReturn == "bossname" then                
-        for _, bossList in pairs(lootTable) do
-			if bossList.bossName == searchValue1 then
-				return bossList.bossId
-			end
-		end
-		util.AddDebugData("function: getElementsFromRaids", searchValue2.." bossID not found in raid "..searchValue1)
-
-    else 
-		util.AddDebugData("function: getElementsFromRaids", whatToReturn.." was not a suitable parameter")
-	end
-
-    return returnArray
-end                            -- Parse the raids data to return requested tables and data
-
-function checkIExist()                              -- makesure my record exists and is current in teh playerSelections data
-    local myName = util.unitname("player")
-	local playerExist = false
-
-    -- util.AddDebugData(util.unitname("player"),"Check player 1 ")
-    -- util.AddDebugData(myName,"Checking for my character Name")
-	playerExist = getPlayerInformation(myName,"","PP")
-    util.AddDebugData(playerExist," Player exists setting for ")
-
-    -- util.AddDebugData(playerExist,"Adding character Name")
-
-    if  playerExist > 0 then
-	    return
-	end
-
-	-- Define the new item to be added
-    local myNewData = 
-		{
-        player = myName,
-        version = 1,
-        playerLoot = {
-            },
-        }
-
-    -- util.AddDebugData(myName,"Adding character Name")
-
-    -- Insert the new item at the beginning of the table
-    table.insert(addon.PLdb.profile.config.playerSelections, 1, myNewData)
-
-    util.Print(format("Character %s added to playSelections data", util.Colorize(myName, "accent",false)))
-
-    -- Set the default to my armour type
-    local myClassName,myClass=UnitClassBase("player")
-
-    for _,armourType in pairs(addon.PLdb.profile.config.classArmour) do
-        if myClass == armourType.class then
-            addon.PLdb.profile.config.myClassName = myClassName
-            addon.PLdb.profile.config.myArmourType = armourType.armour
-            util.AddDebugData(armourType.armour," Armour type set for "..myClassName)
-        end
-    end
-end
-
-function getPlayerInformation(theName,theItemID,theFlag)     -- return details from the player priority date on the player and selected items
-    local recordName,myNameIn = ""
-	local playerRollList = {}
-
-    -- theFlag = "PP" then return the Players Position in the data.  theItem not required
-	-- theFlag = "A" then return the All the player details and selections.  theItem not required
-    -- theFlag = "P" then return the Priority of the selected item   
-    -- theFlag = "N" then return the Number of the selected item. 
-    -- theFlag = "AP" does AnyPlayer have this item selected
-    -- theFlag = "RP" Does the player have top or equal top roll priority pass in util.unitname(unit) the item ID
-    
-	-- util.AddDebugData(theName,"Looking for stuff for  ")
-	for recCounter,playerList in ipairs(addon.PLdb.profile.config.playerSelections) do
-
-        --util.AddDebugData(theName," inspecting player agaisnt ")
-
-        recordName = playerList.player
-        -- myNameIn = theName
-
-        if recordName == theName or theFlag == "AP" or theFlag == "RP" then
-            -- if theFlag == "RP" then util.AddDebugData(theName,"RP flag name in") end
-            if theFlag == "PP" then
-                return recCounter
-            end
-			if theFlag == "A" then
-                return playerList
-            end
-			
-            for itemCount, item in ipairs(playerList.playerLoot) do
-
-                if item[1] == theItemID then
-					if theFlag == "AP" and item[2] > 0 then
-                        util.AddDebugData(theItemID,"item has selections")
-					    return true
-					end
-                    if theFlag == "P" then 
-                        return item[2]
-					end
-					if theFlag == "N" then
-					    return  itemCount
-					end
-                    if theFlag == "RP" then
-                        local newEntry = {recordName,item[2]} -- create a nwEntry incase they are going to be included
-                        util.AddDebugData(item,"check")
-
-                        -- if the table is empty or the priority I have is the same as the one that is there already
-                        if next(playerRollList) == nil or newEntry[2] == playerRollList[1][2] then -- If its the same priority than the first entry then 
-                            table.insert(playerRollList, 1, newEntry)
-                            -- util.AddDebugData(newEntry,"Added to roll table")
-						end
-
-                        if newEntry[2] < playerRollList[1][2] then -- If its a lower priority than the first entry then
-                            playerRollList = newEntry
-                            -- util.AddDebugData(newEntry,"All existing records replaced with")
-                        end
-
-					end
-                end
-            end
-			if theFlag ~= "AP" and theFlag ~= "RP" then return -1 end    -- Item not found for this player but if we are checking all ignore
-        end
-    end
-
-    if theFlag == "RP" then
-        util.AddDebugData(playerRollList,"Added to roll table")
-        for _,rollRecord in ipairs(playerRollList) do
-		    if rollRecord[1] == theName then
-			    return true
-			end
-        end
-		return false
-	end
-
-    util.AddDebugData(theName,"getPlayerInformation: ERROR player not found")
-    return 0 -- player not found and the item not found for any player
-end                             
-
-function getItemSubType(itemEquipLoc,flag)
-    for _, itemLocation in ipairs(addon.PLdb.profile.config.LootItemSubType) do
-	    if itemEquipLoc == itemLocation[1] then
-            if flag=="Name" then
-                return itemLocation[2]  -- return normalised name
-		    else
-			    return itemLocation[3]  -- return the code for the location when filtering
-            end
-		end
-	end
-end
-
-function getGuildMember(theName)
-    local returnRecord = {}
-    for idx,guildMember in ipairs(guildUnit) do
-        if guildMember.unitName == theName then   	
-            returnRecord.hasAddon = guildMember.hasAddon
-			returnRecord.configVersion = guildMember.configVersion
-			returnRecord.lastCheck = guildMember.lastCheck
-            return true,returnRecord
-		end
-	end
-    return false,{}
-end
-
-function updateGuildRecord(unitNameIn,hasAddonIn,lastCheckIn,configVersionIn)
-    for idx,guildMember in ipairs(guildUnit) do
-        if guildMember.unitName == unitNameIn then   	
-            guildUnit[idx].hasAddon = hasAddonIn
-			guildUnit[idx].configVersion = configVersionIn
-			guildUnit[idx].lastCheck = lastCheckIn
-            util.AddDebugData(unitNameIn,"member guild data updated")
-            return
-		end
-	end
-end
-
---- show and hide frames
 function addon:ToggleOptions()
 	
     if ACD.OpenFrames[MyAddOnName] then
@@ -2304,72 +1625,6 @@ function UpdateMinimapIcon()
     else
         LDBIcon:Show(MyAddOnName)
     end
-end                         -- Show or hide the minimap icon
-
---- text functions
-function addon:trimText(text)
-    if addon.PLdb.profile.config.GUI.trimText then
-        if #text > addon.PLdb.profile.config.GUI.maxTextAmount then
-            return text:sub(1, self.PLdb.profile.config.GUI.maxTextAmount).."..."
-        else
-            return text
-        end
-    else
-        return text
-    end
-end
-
-function addon:ApplyFontString(fontString)
-    local fontName = LSM:Fetch("font", addon.PLdb.profile.config.GUI.font)
-    local fontSize = addon.PLdb.profile.config.GUI.fontSize or 12
-    local fontFlags = addon.PLdb.profile.config.GUI.fontFlags or ""
-
-    fontString:SetFont(fontName, fontSize, fontFlags)
-end
-
-function statusText(theMessage)
-    thisAddon.MainLootFrame:SetStatusText(theMessage)
-end
-
---- database functions
-function addon:checkDbVersion()
-
-    -- my current database
-    self.config = self.PLdb.profile.config
-
-	if self.config then
-        util.AddDebugData(self.config.currentDbVersion,"My current version")
-		--Unversioned databases are set to v. 1
-		if self.config.currentDbVersion == nil then self.config.currentDbVersion = 1 end
-
-		--Handle database version checking and upgrading if necessary
-		local startVersion = self.config.currentDbVersion
-        util.AddDebugData(self.config.currentDbVersion,"self.config.currentDbVersion")
-		self:upgradeDatabase(self.config)
-		if startVersion ~= self.config.currentDbVersion then
-			print(("%s configuration database upgraded from v.%s to v.%s"):format(MyAddOnName,startVersion,self.config.currentDbVersion))
-		end
-
-	end
-end
-
-function addon:upgradeDatabase(config)
-
-    -- if the default database I am loading >= what I have now 
-	if config.currentDbVersion >= addon.PLdb.profile.config.currentDbVersion then 
-		return config
-	else
-        -- upgrade my existing database
-		local nextVersion = config.currentDbVersion + 1
-        util.AddDebugData(self.config.currentDbVersion,"Upgrade config dbVersion")
-		local migrationCall = self.migrationPaths[nextVersion]
-
-		if migrationCall then migrationCall(config) end
-
-		config.currentDbVersion = nextVersion
-		return self:upgradeDatabase(config)
-	end
-
-end    
+end                               -- Show or hide the minimap icon
 
 

@@ -14,8 +14,11 @@ defaultConfig = {
 		
     -- General configuration Settings
     welcomeMessage = true,
+    welcomeImage = true,
     welcomeChat = false,
-    minimap = {hide = false, },
+    minimap = { hide = false,
+	            icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\logo",
+	        },
     setFrameWidth = 1050,
     setFilterWidth = 200,
 
@@ -71,7 +74,8 @@ defaultConfig = {
 
     -- GUI Defaults
     GUI = {
-        nameLeftMargin = -5,
+        nameLeftMarginTop = -5,
+        nameLeftMarginBottom = -30,
         point = "CENTER",
 		xPos = 0,
 		yPos = 0,

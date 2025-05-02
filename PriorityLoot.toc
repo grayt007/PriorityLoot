@@ -10,7 +10,8 @@ embeds.xml
 
 modules/core.lua
 modules/messaging.lua
+modules/lootRolls.lua
 modules/options.lua
-modules/GUI.lua
+modules/support.lua
 modules/utils.lua
 modules/config.lua
