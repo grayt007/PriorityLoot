@@ -63,8 +63,8 @@ defaultConfig = {
     guildPriorityLootChannel = "PriorityLoot",
 
     -- Debugging settings
-    doYouWantToDebug = true,
-    doYouHaveDevTool = true,
+    doYouWantToDebug = false,
+    doYouHaveDevTool = false,
     doYouWantDetailedDebug = false,
     doYouWantToDebugMessages = false,
     useTestData = false,

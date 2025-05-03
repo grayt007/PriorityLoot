@@ -101,7 +101,7 @@ function addon:inPL_CONFIG_UPDATE(theEvent,theMessageIn,...)
 
     for idx,newSetting in pairs(theMessage) do
         addon.PLdb.profile.config[newSetting[1]] = newSetting[2]
-        util.AddDebugData(newSetting[2], newSetting[1].." has been updated")
+        -- util.AddDebugData(newSetting[2], newSetting[1].." has been updated")
 	end
 
     ACR:NotifyChange(MyAddOnName)
@@ -134,22 +134,22 @@ function addon:inPL_RANK_CHECK(theEvent,theMessageIn,...)
     local theMessage = addon:processMessage(theMessageIn)
     local myPlayerRecord = addon.PLdb.profile.config.playerSelections[1]
 
-    util.AddDebugData(myPlayerRecord.player, "inPL_RANK_CHECK: Looking for my records.  My name is") 
+    -- util.AddDebugData(myPlayerRecord.player, "inPL_RANK_CHECK: Looking for my records.  My name is") 
 
     -- update the senders guild data with what they send.  Does not matter if its better or worse just make it the same
     updateGuildRecord(theMessage.unitName,theMessage.hasAddon,theMessage.lastCheck,theMessage.configVersion)
 
     for idx,playerRecord in ipairs(theMessage) do
-        util.AddDebugData(playerRecord.p, "inPL_RANK_CHECK: Checking player")
+        -- util.AddDebugData(playerRecord.p, "inPL_RANK_CHECK: Checking player")
 
         -- Get the person sending - the first person is always the sender
         if idx == 1 then 
 			theTarget=playerRecord.p
-            util.AddDebugData(theTarget, "inPL_RANK_CHECK: The target set to")
+            -- util.AddDebugData(theTarget, "inPL_RANK_CHECK: The target set to")
 		end                       -- the first person is always the sender
 
         if myPlayerRecord.player == playerRecord.p then                     -- find the correct player
-            util.AddDebugData(playerRecord.p, "inPL_RANK_CHECK: Found my data")
+            -- util.AddDebugData(playerRecord.p, "inPL_RANK_CHECK: Found my data")
             if myPlayerRecord.version == playerRecord.v then                -- check the data version
 	            return                                                      --  Ignore the message
             elseif myPlayerRecord.version < playerRecord.v then
@@ -164,7 +164,7 @@ function addon:inPL_RANK_CHECK(theEvent,theMessageIn,...)
 		end
 	end
     -- util.AddDebugData(myPlayerRecord, "inPL_RANK_CHECK: Send updated data because they dont have it") 
-    util.AddDebugData(theTarget, "inPL_RANK_CHECK: Sent to") 
+    -- util.AddDebugData(theTarget, "inPL_RANK_CHECK: Sent to") 
     mySendMessage("PL_RANK_UPDATE",myPlayerRecord,theTarget)                      -- If I was not listed then have them add me
 end
 

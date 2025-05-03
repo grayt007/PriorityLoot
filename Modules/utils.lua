@@ -21,8 +21,8 @@ local hexFontColors = {
 
 
 function util.AddDebugData(theData, theString)
-	if addon.PLdb.profile.config.doYouWantToDebug then
-        if addon.PLdb.profile.config.doYouHaveDevTool then
+	if true then -- addon.PLdb.profile.config.doYouWantToDebug then
+        if true then -- addon.PLdb.profile.config.doYouHaveDevTool then
 		    DevTool:AddData(theData, theString)
         else
             print("DEBUG:",theString,theData )
