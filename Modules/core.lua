@@ -109,7 +109,6 @@ local broker = LDB:NewDataObject(MyAddOnName, {
 function addon:OnInitialize()                                               -- MyAddOnName_LOADED(MyAddOnName)
  -- Code that you want to run when the addon is first loaded goes here.
     
-    util.AddDebugData(true,"Start OnInitialize()  ")
     -- get a copy of the default filter that control what items are displayed 
 	local defaultSettings = {
 		profile = {
