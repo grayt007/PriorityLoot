@@ -5,74 +5,122 @@ local STANDARD_TEXT_FONT = STANDARD_TEXT_FONT
 --Runs in application namespace
 setfenv(1, addon)
 
-defaultConfig = {
+-- Determines where that data is stored for the account
 
-    --Applies to all text
-    fontName = STANDARD_TEXT_FONT, 
-    fontHeight = 11, 
-    fontColor = {1,1,1},
-		
-    -- General configuration Settings
-    welcomeMessage = true,
-    welcomeImage = true,
-    welcomeChat = false,
-    minimap = { hide = false,
-	            icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\logo",
-	        },
-    setFrameWidth = 1050,
-    setFilterWidth = 200,
-
-    -- My deatils
-	myArmourType = 1,     -- position 1 = A, 2=B,3=C,4=D - see bottom filter settings
-    myClassName = "Default",
+charConfig = {
+    -------------------------- This is set and updated by the Loot Manager ------------------------
+    ------------ position 1 = A,2=B,3=C,4=D, see bottom filter settings for armour class ----------
+	myArmourType = "D",           
+    myClassName = "Warrior",
     myGuildName = "Default",
     myGuildRealm = "Default",
 
-    --  The settings that will be changed by the Loot Manager via messages between clients
-    --  This is iterated to build the update message
-        configFieldsToSend = {
-        "configVersion",
-        "testMode",
-        "guildLootManager",
-        "guildOfficerRanks",
-        "guildRaidRanks",
-        "guildOtherRanks",
-        "numberOfPriorities",
-        "refineSuicide",
-        "refineItemLevel",
-        "refineItemLevelRange",
-        "refineGuildRank",
-	},
-
-    -- the fields themselves but they dont have to be in this poistion specifically
+    -------------------------------------- PRIORITY LOOT SETTINGS ---------------------------------
+    -------------------------- This is set and updated by the Loot Manager ------------------------
     configVersion = 1,
     lastConfigCheck = 0,
     testMode = true,
-    guildLootManager = "Default",
-    guildOfficerRanks = {0,1,2},
+    guildLootManager = "Synergised-Nagrand",
+    guildOfficerRanks = {0,1,2,"-","-","-","-","-","-","-","-"},
     officerList = {},
-    guildRaidRanks = {0,1,4},
-    guildOtherRanks = {5,6},-- other ranks that might end up in  raid group but they are not regulars.  e.g. Alts
+    guildRaidRanks = {0,1,"-","-",4,"-","-","-","-","-"},
+    guildOtherRanks = {5,6},        
     numberOfPriorities = 12,
     refineSuicide = true,
     refineItemLevel = false,
     refineItemLevelRange = 0,
     refineGuildRank = true,
+    lockPrioritiesDuringRaid = false,
+    includeWeapons = true,
+    includeArmour = true,
+    includeTrinkets = true,
+    includeJewelery = true,
+    includeTier = true,
 
-    listMeFirst = true, 
-    guildPriorityLootChannel = "PriorityLoot",
 
-    -- Debugging settings
+    --[[------------------------------------ GUILD MEMBER DATA ---------------------------------
+            unitName = the character name
+            unitRank = the guild rank
+	        hasAddon = the version
+	        configVersion = the version of the  configuration settings
+            lastCheck = last time the configuration was checked
+            online = are they online or offline
+    ]]--
+    guildMembers = {},      
+
+    
+    -------------------------------------- Player Priorities ---------------------------------
+    playerSelections = {
+        {
+		player = "Synergised-Nagrand",
+        version = 3,
+        priorityHistory = {1,3},
+        playerLoot =
+		    {
+            {"228861", 1},
+            {"228865", 2},
+            {"228875", 3},
+            {"228876", 4},
+            {"228852", 5},
+            {"228862", 6},
+            {"228858", 7},
+            {"228868", 8},
+            {"228839", 9},
+            {"228847", 10},
+
+  			},
+		},
+		{
+        player = "Hex-Nagrand",
+        version = 1,
+        priorityHistory = {2},
+		playerLoot =
+		    {
+            {"228846", 1},
+            {"228873", 2},
+			},
+        },
+	},
+
+    hashPH = "",
+    currentDbVersion = 2,
+
+}
+
+profileConfig = {
+
+    -------------------------------------- DEBUGGING ---------------------------------
     doYouWantToDebug = false,
     doYouHaveDevTool = false,
     doYouWantDetailedDebug = false,
     doYouWantToDebugMessages = false,
     useTestData = false,
 
-    --Processing and efficiency
-    updateInterval = 0.1,
+    -------------------------------------- GLOBAL GUI ---------------------------------
+    fontName = STANDARD_TEXT_FONT, 
+    fontHeight = 11, 
+    fontColor = {1,1,1},
+		
+    -------------------------------------- GENERAL GUI ---------------------------------
+    welcomeMessage = true,
+    welcomeImage = true,
+    welcomeChat = false,
+    minimap = { hide = false,
+	            icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\logo",
+	           },
+    setFrameWidth = 1050,
+    setFilterWidth = 200,
 
-    -- GUI Defaults
+
+    filterSettings = {
+	    displayGuildNames = true,
+        displayMeFirst = true,
+        displayOnlyMyItems = false,
+        defaultRaid = 1273,
+        defaultBoss = 2,	
+        currentFilter = {"-","-","-","-","-","F","G","H","I","J","K","L"}, 
+	},
+    -------------------------------------- GUI DEFAULTS ---------------------------------
     GUI = {
         nameLeftMarginTop = -5,
         nameLeftMarginBottom = -30,
@@ -94,101 +142,32 @@ defaultConfig = {
         protectionTimer = 3,
 	},
 
-    LootList = {},
 
-    guildMembers = {},
-    -------------------------------------- PLAYER SELECTION DATA ---------------------------------
-    -- lastUpdate = C_DateAndTime.GetServerTimeLocal()  e.g. realm time as one number in seconds
-    -- I should always be number one in the array
+}
 
-    priorityHistory = {},
-    playerSelections = {
-        {
-		player = "Jholy-Nagrand",
-        version = 3,
-        playerLoot =
-		    {
-            {"228861", 1},
-            {"228865", 2},
-            {"228875", 3},
-            {"228876", 4},
-            {"228852", 5},
-            {"228862", 6},
-            {"228858", 7},
-            {"228868", 8},
-            {"228839", 9},
-            {"228847", 10},
+globalConfig = {
 
-  			},
-		},
-        {
-		player = "Alpine-Barthilas",
-        version = 3,
-		playerLoot =
-		    {
-            {"228861", 6},
-            {"228865", 5},
-            {"228875", 4},
-            {"228876", 3},
-            {"228840", 2},
-            {"228904", 1},
-  			},
-        },
-		{
-        player = "Hex-Nagrand",
-        version = 1,
-		playerLoot =
-		    {
-            {"228846", 1},
-            {"228873", 2},
-			},
-        },
-        {
-        player = "Hazel-Nagrand",
-        version = 1,
-		playerLoot =
-		    {
-            {"228861", 1},            
-            {"228847", 2},
-            {"228856", 3},
-            {"228846", 4},
-            {"228873", 5},
-            {"228840", 6},
-            {"228904", 7},
-            {"228900", 8},
-  			},
-        },
-		{
-        player = "Elinthos-Frostmourne",
-        version = 1,
-		playerLoot =
-		    {
-            {"228846", 4},
-            {"228873", 5},
-            {"228840", 6},
-            {"228904", 7},
-            {"228900", 8},
-            {"228861", 1}, 
-			},
-        },
-
+    -------------------------- This is set and updated by the Loot Manager ------------------------
+    -- configVersion must be first
+    configFieldsToSend = {
+        "configVersion",
+        "guildLootManager",
+        "guildOfficerRanks",
+        "guildRaidRanks",
+        "numberOfPriorities",
+        "refineSuicide",
+        "refineItemLevel",
+        "refineItemLevelRange",
+        "refineGuildRank",
+        "lockPrioritiesDuringRaid",
+        "includeWeapons",
+        "includeArmour",
+        "includeTrinkets",
+        "includeJewelery",
+        "includeTier",
 	},
 
-
     -------------------------------------- BOSS LOOT TABLES ---------------------------------
-    --[[
-	 last time I grabbed the data off wowhead then fed the data into copilot and it converted 
-     it to xml e.g. "using this xml format convert this data"
-	          bossLoot = {
-                   {
-	               bossId = "225822",
-	               bossName = "the name",
-                   lootItems=
-                       {
-                           {"228861"," Tune-Up Toolbelt"},
-                       },
-              },
-    --]]
     bossLoot = {
     {
         bossId = "225822",
@@ -350,13 +329,21 @@ defaultConfig = {
 },
     
 
-	-------------------------------------- FILTER SETUP AND MANAGEMENT ---------------------------------
-	--[[
+	--[[------------------------------------ FILTER SETUP AND MANAGEMENT ---------------------------------
+
+    A = Cloth
+	B = leather
+	C = Mail
+	D = Plate	
+
     Equipment Type for filterColumnElements
 	ID="E" is "Armour"                ID="F" is "Trinkets"
 	ID="G" is "Jewelery"              ID="H" is "Weapons (1H)"
     ID="I" is "Weapons (2H)"          ID="J" is "Offhand"
-    ID="K" is "Ranged"
+    ID="K" is "Ranged"              
+
+    ID="L" is Tier Tokens
+
     --]]
 
     LootItemSubType = {
@@ -386,19 +373,15 @@ defaultConfig = {
         {"INVTYPE_NON_EQUIP_IGNORE","Tier Token","L"},
     },
 	
-    -- A = Cloth, B = leather, C = Mail, D = Plate	
     filterArmourType = {"A","B","C","D"},
 	
-    filterSettings = {
-	    displayGuildNames = true,
-        displayMeFirst = true,
-        displayOnlyMyItems = false,
-        defaultRaid = 1273,
-        defaultBoss = 2,	
-        currentFilter = {"-","-","-","-","-","F","G","H","I","J","K","L"}, 
-		},
      --[[
-     Type "H" for Heading and "C" for checkbox 
+     This table allow the generation of the filter boxes.  Should probably replace with plain code in the future
+	    Type: 
+	    "H" for Heading and 
+	    "C" for checkbox 
+	    "S" for spacer
+	 
 	 ID is used to filter the records so each item that is a filter needs unique character
 	 position allows you to refer to the checkbox from other code thisAddon.checkboxList[position]
 	 Name is what is displayed
@@ -546,6 +529,8 @@ defaultConfig = {
     13	Evoker	        EVOKER	
 
 --]]
+
+    -- Group the standard Warcraft types into filter groups
     classArmour = {
 
 		{class = 1,armour="D"},
@@ -585,7 +570,7 @@ WARLOCK 	    265 Affliction 	    266 Demonology 	    267 Destruction
 WARRIOR 	    71 	Arms 	        72 	   Fury 	    73 	Protection 	
 ]]--
 
-
+}
 
 --[[
 Database version migration logic.
@@ -598,9 +583,6 @@ Functions should update config in-place to update from the previous integer
 version.  Updates are automatically cascaded across multiple versions when
 needed.
 ]]--
-
-currentDbVersion = 2
-}
 
 migrationPaths = {
 

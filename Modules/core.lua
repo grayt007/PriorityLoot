@@ -7,7 +7,6 @@ thisAddon.frameBeingDisplayed = 0
 thisAddon.checkboxList = {}
 -- thisAddon.ChannelId = 0
 thisAddon.playerSelections = {}
-thisAddon.priorityHistory = {}
 thisAddon.roster = {} 
 
 lootRoll = {}
@@ -62,7 +61,6 @@ local broker = LDB:NewDataObject(MyAddOnName, {
         else
             tooltip:AddLine(format("%s allow 15 seconds for client to initialise.", util.Colorize("WARNING:")), 1, 1, 1, false)
         end
-        -- tooltip:AddLine(format("%s to toggle the minimap icon.", util.Colorize("Shift+Right-click")), 1, 1, 1, false)
     end,
     OnEnter = function(self)
         GameTooltip:SetOwner(self, "ANCHOR_NONE")
@@ -99,11 +97,6 @@ local broker = LDB:NewDataObject(MyAddOnName, {
     end,
 })
 
---local UnitName,UnitIsUnit,UnitClass,UnitGUID,UnitIsFriend,UnitIsPlayer =
---        UnitName,UnitIsUnit,UnitClass,UnitGUID,UnitIsFriend,UnitIsPlayer
---local IsInGroup,GetNumGroupMembers,GetNumSubgroupMembers,GetRaidRosterInfo,GetPartyAssignment,GetRaidTargetIndex =
---IsInGroup,GetNumGroupMembers,GetNumSubgroupMembers,GetRaidRosterInfo,GetPartyAssignment,GetRaidTargetIndex
-
 ---------------- SETUP FUNCTIONS------------------------------
 
 function addon:OnInitialize()                                               -- MyAddOnName_LOADED(MyAddOnName)
@@ -111,9 +104,9 @@ function addon:OnInitialize()                                               -- M
     
     -- get a copy of the default filter that control what items are displayed 
 	local defaultSettings = {
-		profile = {
-			config = util.deepcopy(self.defaultConfig),
-		},
+		char = util.deepcopy(self.charConfig),
+		profile = util.deepcopy(self.profileConfig),
+		global = util.deepcopy(self.globalConfig),
 	}
 
     -- util.Print("The dbName for settings is "..dbName)
@@ -122,14 +115,18 @@ function addon:OnInitialize()                                               -- M
    	addon.PLdb = LibStub("AceDB-3.0"):New(dbName, defaultSettings)    
     LDBIcon:Register(MyAddOnName, broker, self.PLdb.profile.minimap)       -- 3rd parameter is where to store the  hide/show + location of button 
    
+    util.AddDebugData(defaultSettings,"Default Settings")
+    util.AddDebugData(addon.PLdb,"Settings")
+
     -- Register for actions when the profile is changed
     if not self.registered then                                         
         addon.PLdb.RegisterCallback(self, "OnProfileChanged", "FullRefresh")
         addon.PLdb.RegisterCallback(self, "OnProfileCopied", "FullRefresh")
         addon.PLdb.RegisterCallback(self, "OnProfileReset", "FullRefresh")
 
-        addon:ScheduleTimer("getGuildDetails", 15) -- delay getting the guild info because the client will return an error while it full initialises
-        addon:ScheduleTimer("buildPL_RANK_CHECK", random(15,45)) -- delay sending the message to spread them out if multiple people login near the same time
+        addon:ScheduleTimer("getGuildDetails", 15)                 -- delay getting the guild info because the client will return an error while it full initialises
+        addon:ScheduleTimer("buildPL_CONFIG_CHECK", random(15,30)) -- delay sending the message to spread them out if multiple people login near the same time
+        addon:ScheduleTimer("buildPL_RANK_CHECK", random(30,45))   -- delay sending the message to spread them out if multiple people login near the same time
 
         addon:displayWelcomeImage()
 
@@ -140,32 +137,16 @@ function addon:OnInitialize()                                               -- M
    
     self:checkDbVersion()
 
-    if addon.PLdb.profile.config.welcomeMessage then
+    if addon.PLdb.profile.welcomeMessage then
         util.Print(format("Type %s or %s to open the options panel or %s for more commands.", util.Colorize("/PL", "accent"), util.Colorize("/PriorityLoot", "accent"), util.Colorize("/PL help", "accent")))
     end
 
-    -- Define the slash commands.  This should be updated to be a sperate function and fall inline with the ACE approach.
-	-- https://wowwiki-archive.fandom.com/wiki/Creating_a_slash_command
-    SLASH_auga1 = "/PL"
-    SLASH_auga2 = "/PriorityLoot"
-    function SlashCmdList.PL(msg)
-        if msg == "help" or msg == "?" then
-             util.Print("Command List")
-             print(format("%s or %s: Toggles the options panel.", util.Colorize("/PriorityLoot", "accent"), util.Colorize("/PL", "accent")))
-             print(format("%s %s: Resets current profile to default settings. This does not remove any custom auras.", util.Colorize("/PL", "accent"), util.Colorize("reset", "value")))
-             print(format("%s %s: Toggles the minimap icon.", util.Colorize("/PL", "accent"), util.Colorize("minimap", "value")))
-        elseif msg == "reset" or msg == "default" then
-             self.PLdb:ResetProfile()
-        elseif msg == "minimap" then
-             self:ToggleMinimapIcon()
-        else
-             self:ToggleOptions()
-        end
-    end
+    addon:RegisterChatCommand("PL", "processSlashCommnands")
+    addon:RegisterChatCommand("PriorityLoot", "processSlashCommnands")
 
     -- load up the player selections from the config.lua file
-    thisAddon.playerSelections = addon.PLdb.profile.config.playerSelections
-    thisAddon.priorityHistory = addon.PLdb.profile.config.priorityHistory
+    thisAddon.playerSelections = addon.PLdb.char.playerSelections
+    util.AddDebugData( thisAddon.playerSelections,"Player selections")
     util.AddDebugData(true,"End OnInitialize()  ")
 end                                                                     
 
@@ -190,11 +171,11 @@ function addon:OnEnable()
     util.AddDebugData(true,"event Setup done ")
 
     -- duplicate the object don't reference it so we don't change the default
-	thisAddon.filters = util.deepcopy(addon.PLdb.profile.config.filterSettings)
+	thisAddon.filters = util.deepcopy(addon.PLdb.profile.filterSettings)
     util.AddDebugData(true,"config duplicated ")
 
     -- Grab the GUI settings
-    lootRoll.GUI = addon.PLdb.profile.config.GUI
+    lootRoll.GUI = addon.PLdb.profile.GUI
 
     -- Make sure my character exist otherwise who cares about loot :-)
     checkIExist()
@@ -237,6 +218,7 @@ function addon:eventSetup(theAction)
     if theAction == "Register" then
 	    addon:RegisterEvent('GROUP_ROSTER_UPDATE',"eventHandler")
 	    addon:RegisterEvent('GROUP_JOINED',"eventHandler")
+        addon:RegisterEvent('GROUP_LEFT',"eventHandler")
         addon:RegisterEvent("PLAYER_ENTERING_WORLD","eventHandler")
 
 	end
@@ -244,6 +226,7 @@ function addon:eventSetup(theAction)
 	if theAction == "unRegister" then
 	    addon:UnregisterEvent('GROUP_ROSTER_UPDATE')
 	    addon:UnregisterEvent('GROUP_JOINED')
+        addon:UnregisterEvent('GROUP_LEFT')
 		addon:UnRegisterEvent("PLAYER_ENTERING_WORLD")
     end
 
@@ -266,10 +249,11 @@ function addon:eventSetup(theAction)
 
         addon:RegisterComm("PL_RANK_CHECK","inPL_RANK_CHECK")        -- a player has asked to check your selection. - activated on delay after login  
                                                                      -- If they are current ignore, if not send a targeted message with Data message
+        addon:RegisterComm("PL_RANK_UPDATE","inPL_RANK_UPDATE")      -- Process a message to update a players details if PL_RANK_CHECK promted a response from anophter player
         addon:RegisterComm("PL_CONFIG_UPDATE","inPL_CONFIG_UPDATE")  -- The Loot Manager has updated the configuration - activated by Loot Manager
         addon:RegisterComm("PL_ADDON_ACTIVE","inPL_ADDON_ACTIVE")    -- The Loot Manager has updated the configuration - activated by loot manager
-        addon:RegisterComm("PL_ROLL_CHECK","inPL_ROLL_CHECK")      -- Asking the loot manager if Loot Rolls are active
-        -- addon:RegisterComm("PL_ADDON_CHECK","inPL_ADDON_CHECK")      -- TBD
+        addon:RegisterComm("PL_ROLL_CHECK","inPL_ROLL_CHECK")        -- Asking the loot manager if Loot Rolls are active
+        addon:RegisterComm("PL_CONFIG_CHECK","inPL_CONFIG_CHECK")    -- Check the configuration with the loot manager
     end
 
     if theAction == "MessageON" or theAction == "unRegister" then
@@ -297,7 +281,10 @@ function addon:eventHandler(theEvent, ...)
 			
         elseif theEvent == "GROUP_JOINED" then
              addon:joinedRaid()
-			
+
+		elseif theEvent == "GROUP_LEFT" then
+             addon:leftRaid()	
+
         elseif theEvent == "PLAYER_ENTERING_WORLD" then
 		    self.instanceType = select(2, IsInInstance())
             local isLogin, isReload = ...
@@ -305,7 +292,7 @@ function addon:eventHandler(theEvent, ...)
 			    C_ChatInfo.RegisterAddonMessagePrefix(MyAddOnName)
 		    end
             if isLogin then
-                -- addon:buildPL_ADDON_CHECK()
+                -- 
 			end
 
 		elseif theEvent == "CHAT_MSG_SYSTEM" then
@@ -325,7 +312,6 @@ end                           -- Actions assigned to events
 function addon:OnNewProfile(eventName, db, profile)
 
 	--Set the dbVersion to the most recent, as defaults for the new profile should be up-to-date
-	-- self.PLdb.profile.config.dbVersion = self.currentDbVersion
 
 end 
 
@@ -349,7 +335,7 @@ function loadGuildMembers()
 -- rankName = GuildControlGetRankName(index)
 
     local numTotalGuildMembers, numOnlineGuildMembers, _ = GetNumGuildMembers()
-    local memberCounter = #addon.PLdb.profile.config.guildMembers
+    local memberCounter = #addon.PLdb.char.guildMembers
     local memberRecord = {}
     local memberFound = False
     local memberNames = {} --  check the current guild members and delete others
@@ -357,7 +343,7 @@ function loadGuildMembers()
     thisAddon.roster = {} 
 
     -- guild unit is the list of all current guild members + extra data about the addon based on rank
-    thisAddon.guildUnit = addon.PLdb.profile.config.guildMembers
+    thisAddon.guildUnit = addon.PLdb.char.guildMembers
 
     for gmc=1,numTotalGuildMembers do
         local memberName, _, memberRankIndex, _, _, _, _, _, memberIsOnline, _, _, _, _, _, _, _, memberGUID = GetGuildRosterInfo(gmc)
@@ -373,22 +359,22 @@ function loadGuildMembers()
         end       -- UnitIsUnit()
 
         -- if they have the rank of an officer and are not in the officers list then insert them
-        if util.hasValue(addon.PLdb.profile.config.guildOfficerRanks,memberRankIndex) and
-            not util.hasValue(addon.PLdb.profile.config.officerList,memberName) then
-            table.insert(addon.PLdb.profile.config.officerList,memberName)
+        if util.hasValue(addon.PLdb.char.guildOfficerRanks,memberRankIndex) and
+            not util.hasValue(addon.PLdb.char.officerList,memberName) then
+            table.insert(addon.PLdb.char.officerList,memberName)
 			end
 
         -- if they do not the rank of an officer and are  in the officers list then remove them
-        if not util.hasValue(addon.PLdb.profile.config.guildOfficerRanks,memberRankIndex) and
-            util.hasValue(addon.PLdb.profile.config.officerList,memberName) then
-            --util.AddDebugData(addon.PLdb.profile.config.officerList,"Officer  list")
+        if not util.hasValue(addon.PLdb.char.guildOfficerRanks,memberRankIndex) and
+            util.hasValue(addon.PLdb.char.officerList,memberName) then
+            --util.AddDebugData(addon.PLdb.char.officerList,"Officer  list")
             --util.AddDebugData(memberName,"memberName")
-            position = util.keyFromValue(addon.PLdb.profile.config.officerList,memberName)
-            table.remove(addon.PLdb.profile.config.officerList,position)
+            position = util.keyFromValue(addon.PLdb.char.officerList,memberName)
+            table.remove(addon.PLdb.char.officerList,position)
 		end
 
         -- get whatever current record we have for this person if any in the guildUnit table
-        memberFound, memberRecord = getGuildMember(memberName)
+        memberFound, memberRecord, memberLocation = getGuildMember(memberName)
 
         -- util.AddDebugData(memberFound,memberName.." found in the existing table")
 
@@ -398,18 +384,20 @@ function loadGuildMembers()
 		else
             iAmTheGM = false 
 		end
-        -- util.AddDebugData(iAmTheGM,"Am I the GM ? ")
+
         
         -- If I am the loot manager then lets flag that
-        if addon.PLdb.profile.config.nameLootManager == util.unitname(UnitName("player")) and
-            (util.hasValue(addon.PLdb.profile.config.guildOfficerRanks,memberRankIndex) or iAmTheGM ) then -- include GM incase some numpty removes GM from officerranks
-            iAmTheLootManager = true
-		else
-            iAmTheLootManager = false 
-		end
+        if not iAmTheLootManager then
+            if addon.PLdb.char.guildLootManager == util.unitname(UnitName("player")) and
+                (util.hasValue(addon.PLdb.char.guildOfficerRanks,memberRankIndex) or iAmTheGM ) then -- include GM incase some numpty removes GM from officerranks
+                iAmTheLootManager = true
+		    else
+                iAmTheLootManager = false 
+		    end
+		end 
 
         -- If its a valid raiding rank or its me then add me to the list
-        if util.hasValue(addon.PLdb.profile.config.guildRaidRanks,memberRankIndex) or itsMe then
+        if util.hasValue(addon.PLdb.char.guildRaidRanks,memberRankIndex) or itsMe then
 		       
                -- insert into a list of valid guild members that we hold for checking at the end of this function
                -- This lets us delete people who were but no longer are in the list of raiders 
@@ -424,19 +412,22 @@ function loadGuildMembers()
 
                    if itsMe then
 			   	       memberRecord.hasAddon = version                            
-                       memberRecord.lastCheck = addon.PLdb.profile.config.lastConfigCheck                         
-	                   memberRecord.configVersion = addon.PLdb.profile.config.configVersion
-                       table.insert(addon.PLdb.profile.config.guildMembers,1,memberRecord) -- insert into position 1
+                       memberRecord.lastCheck = addon.PLdb.char.lastConfigCheck                         
+	                   memberRecord.configVersion = addon.PLdb.char.configVersion
+                       memberRecord.online = true
+                       table.insert(addon.PLdb.char.guildMembers,1,memberRecord) -- insert into position 1
 			       else
                        memberRecord.hasAddon = 0        
                        memberRecord.configVersion = 0   
                        memberRecord.lastCheck = 0
-                       table.insert(addon.PLdb.profile.config.guildMembers,2,memberRecord)
+                       memberRecord.online = memberIsOnline
+                       table.insert(addon.PLdb.char.guildMembers,2,memberRecord)
 			       end 
 
                else
                    -- util.AddDebugData(memberFound,"Found in existing DB "..memberName)
                    -- We don't need to add them to the config file
+                   thisAddon.guildUnit[memberLocation].online = memberIsOnline
 			   end
 		 else
                 -- util.AddDebugData(memberRankIndex,"Not a raiding rank")
@@ -480,7 +471,7 @@ function loadRaidMembers()
             end
 
             -- its the same guild name on the same realm
-            if guildName == addon.PLdb.profile.config.myGuildName and guildRealm == addon.PLdb.profile.config.myGuildRealm then
+            if guildName == addon.PLdb.char.myGuildName and guildRealm == addon.PLdb.char.myGuildRealm then
 
                 -- if its me force it into roster position 1
                 if unitName and itsMe then 
@@ -513,7 +504,7 @@ function updateRosterToGuild()
 	
     for idx,guildMember in ipairs(thisAddon.guildUnit) do
 	
-        --if util.hasValue(addon.PLdb.profile.config.guildRaidRanks,guildMember.unitRank) then
+        --if util.hasValue(addon.PLdb.char.guildRaidRanks,guildMember.unitRank) then
 
             -- The first unit is me becuase wee forced that when loading guildUnit
 	        local notMe = not UnitIsUnit('player',guildMember.unitName) 
@@ -528,11 +519,13 @@ function updateRosterToGuild()
                 thisAddon.roster[rosterCount].hasAddon = guildMember.hasAddon                       -- has or does not have the PL addon
                 thisAddon.roster[rosterCount].configVersion = guildMember.configVersion
                 thisAddon.roster[rosterCount].lastCheck = guildMember.lastCheck                     -- we want to check some basics once and only once
+                thisAddon.roster[rosterCount].online = guildMember.online  
                 -- util.AddDebugData(util.getShortName(guildMember.unitName),"Guild member added to headings")
             else
 	            thisAddon.roster[1].hasAddon = version                            
-                thisAddon.roster[1].lastCheck = addon.PLdb.profile.config.lastConfigCheck                         
-	            thisAddon.roster[1].configVersion = addon.PLdb.profile.config.configVersion
+                thisAddon.roster[1].lastCheck = addon.PLdb.char.lastConfigCheck                         
+	            thisAddon.roster[1].configVersion = addon.PLdb.char.configVersion
+                thisAddon.roster[1].online = true
 		    end	
             rosterCount = rosterCount + 1
 		--end			
@@ -554,7 +547,7 @@ function updateRosterToRaid()
             -- thisAddon.roster[i].unitID = unitID     
             thisAddon.roster[i].unitName = thisAddon.raidUnit[i].unitName 
 
-            local memberRecord = getGuildMember(thisAddon.raidUnit[i].unitName)
+            local _,memberRecord,_ = getGuildMember(thisAddon.raidUnit[i].unitName)
 
             if memberRecord then
                 thisAddon.roster[i].hasAddon = memberRecord[1]            
@@ -585,9 +578,8 @@ end                             -- Open the options panel - Do we still need thi
 
 function addon:displayWelcomeImage()
     
-    -- util.AddDebugData(addon.PLdb.profile.config.welcomeImage,"WeLcome image Y/N")
 
-    if addon.PLdb.profile.config.welcomeImage then 
+    if addon.PLdb.profile.welcomeImage then 
 
         addon.welcomeImage = CreateFrame("Frame", 'welcomeImageFrame' , UIParent) 
         addon.welcomeImage:SetPoint("CENTER")
@@ -613,7 +605,7 @@ function addon:displayWelcomeImage()
             addon.welcomeImage:Hide()
         end)
         addon.welcomeImage:Show()
-        addon.PLdb.profile.config.welcomeImage = false
+        addon.PLdb.profile.welcomeImage = false
     end
 
 end                      -- display the welcome image the first time the addon loads
@@ -633,7 +625,7 @@ function buildMainLootWindow()
     -- Create Main Loot Form
     thisAddon.MainLootFrame:SetTitle("Priority Loot")
     thisAddon.MainLootFrame:SetStatusText("Priority Loot Review Window")
-    thisAddon.MainLootFrame:SetWidth(addon.PLdb.profile.config.setFrameWidth)
+    thisAddon.MainLootFrame:SetWidth(addon.PLdb.profile.setFrameWidth)
     thisAddon.MainLootFrame:SetHeight(600)
     thisAddon.MainLootFrame:SetLayout("Flow")
     thisAddon.MainLootFrame:EnableResize(false)
@@ -672,7 +664,7 @@ function buildFilterColumnTop()
 
     thisAddon.filterColumn = AceGUI:Create("SimpleGroup")
     -- filterColumn:SetTitle("Filters")
-    thisAddon.filterColumn:SetWidth(addon.PLdb.profile.config.setFilterWidth)
+    thisAddon.filterColumn:SetWidth(addon.PLdb.profile.setFilterWidth)
     thisAddon.filterColumn:SetHeight(550)
     thisAddon.filterColumn:SetLayout("Flow")
 
@@ -801,10 +793,9 @@ end
 function buildFilterColumnBottom()
    
     -- util.AddDebugData(thisAddon.filters,"Filters check active")
-    -- util.AddDebugData(addon.PLdb.profile.config.filterSettings.currentFilter,"Filters check defaults")
 
     thisAddon.checkboxList = {}
-    for key,filterList in ipairs (addon.PLdb.profile.config.filterColumnElements) do
+    for key,filterList in ipairs (addon.PLdb.global.filterColumnElements) do
 
         -- Loop through the data and create headers, spacers or buttons
         if filterList.type == "H" then
@@ -820,12 +811,38 @@ function buildFilterColumnBottom()
             spacer:SetText("  ")
             thisAddon.filterColumn:AddChild(spacer)
         else
-            -- filterColumn Checkbox
+    --[[
+            The following can be excluded from rolls by the Loot Manager
+
+	        ID="E" is "Armour"                
+			ID="F" is "Trinkets"
+	        ID="G" is "Jewelery"
+			ID="H" is "Weapons (1H)" ID="I" is "Weapons (2H)" ID="J" is "Offhand" ID="K" is "Ranged"
+    ]]--    
+	        local includeArmour = addon.PLdb.char.includeArmour
+            local includeTrinkets = addon.PLdb.char.includeTrinkets
+            local includeJewelery = addon.PLdb.char.includeJewelery
+            local includeWeapons = addon.PLdb.char.includeWeapons
+            local includeTier = addon.PLdb.char.includeTier
+
+                -- filterColumn Checkbox
             local theCheckbox = AceGUI:Create("CheckBox")
             thisAddon.checkboxList[filterList.position] = theCheckbox
             theCheckbox:SetLabel(filterList.name)
             theCheckbox:SetType("checkbox")
             theCheckbox:SetWidth(100)
+			
+			if ((filterList.ID == "A" or filterList.ID == "B" or filterList.ID == "C" or filterList.ID == "D" or filterList.ID == "E") and includeArmour) or 
+            (filterList.ID == "F" and includeTrinkets) or
+            (filterList.ID == "G" and includeJewelery) or
+            (filterList.ID == "H" and includeWeapons) or
+            ((filterList.ID == "I" or filterList.ID == "J" or filterList.ID == "K") and includeWeapons) or
+            (filterList.ID == "L" and includeTier) then
+                theCheckbox:SetDisabled(false)
+            else
+                theCheckbox:SetDisabled(true)
+			end
+
             if thisAddon.filters.currentFilter[filterList.position] == "-" then
 			    theCheckbox:SetValue(false)
             else
@@ -843,6 +860,7 @@ function buildFilterColumnBottom()
                     refreshDataInTable()
 			    end)
             thisAddon.filterColumn:AddChild(theCheckbox)
+			
 		end
     end
 
@@ -861,9 +879,13 @@ function buildFilterColumnBottom()
     enterPriorities:SetText("Enter My Priorities")
     enterPriorities:SetWidth(200)
     enterPriorities:SetCallback("OnClick", function()
-            tableColumnContent = "E"        -- (E)nter Priorities
-		    fillTableColumn()      
-            statusText(format("Enter your priorities for currently filtered items.  %i will remove a priority.",util.Colorize("0", "accent")))
+            if addon.PLdb.char.lockPrioritiesDuringRaid and IsInRaid() then
+			    statusText(format("Editing priorities is %s for your guild during raids.",util.Colorize("LOCKED", "accent")))
+            else
+                tableColumnContent = "E"        -- (E)nter Priorities
+		        fillTableColumn()      
+                statusText(format("Enter your priorities for currently filtered items.  %i will remove a priority.",util.Colorize("0", "accent")))
+			end
 	end)
     enterPriorities:SetDisabled(IsInRaid())
     thisAddon.filterColumn:AddChild(enterPriorities)
@@ -879,16 +901,14 @@ function buildFilterColumnBottom()
     thisAddon.filterColumn:AddChild(showLootHistory)
 
      -- Set any special defaults
-    local theType = addon.PLdb.profile.config.myArmourType
+    local theType = addon.PLdb.char.myArmourType
 
     -- Loop through the 4 armour types resetting them to match the filters and default armour types
-    for counter,filterSetting in pairs(addon.PLdb.profile.config.filterArmourType) do
+    for counter,filterSetting in pairs(addon.PLdb.global.filterArmourType) do
 	    if filterSetting == theType then      -- found my default type
-		    -- addon.PLdb.profile.config.filterSettings.currentFilter[counter]=filterSetting
             thisAddon.filters.currentFilter[counter]=filterSetting
             thisAddon.checkboxList[counter]:SetValue(true)
         else
-		    -- addon.PLdb.profile.config.filterSettings.currentFilter[counter]="-"
             thisAddon.filters.currentFilter[counter]="-"
             thisAddon.checkboxList[counter]:SetValue(false)
 	    end
@@ -899,7 +919,7 @@ end
 function buildTableColumn()
     local headerLabels = {}
     --                              width of the MainFrame           -       width of filter frame              - spacer - AceWow shit
-    local tableColumnWidth = addon.PLdb.profile.config.setFrameWidth - addon.PLdb.profile.config.setFilterWidth - 20 - 40
+    local tableColumnWidth = addon.PLdb.profile.setFrameWidth - addon.PLdb.profile.setFilterWidth - 20 - 40
 
     -- thisAddon.tableColumn - Create the second column group 
     thisAddon.tableColumn = AceGUI:Create("SimpleGroup") 
@@ -944,8 +964,8 @@ function playerPriorityHeadings()
     local header2 = AceGUI:Create("SimpleGroup")
     local widthOfIcon = 34                                      -- pixels
     local widthOfCharacter = 5.6                                -- assuming Courier 12 point
-    local lastOverhang1 = addon.PLdb.profile.config.GUI.nameLeftMarginTop  --  True up some initial indent ot make thigns line up
-    local lastOverhang2 = addon.PLdb.profile.config.GUI.nameLeftMarginBottom                                    -- Allow for the column of item icons for the second header row
+    local lastOverhang1 = addon.PLdb.profile.GUI.nameLeftMarginTop  --  True up some initial indent ot make thigns line up
+    local lastOverhang2 = addon.PLdb.profile.GUI.nameLeftMarginBottom                                    -- Allow for the column of item icons for the second header row
 
     -- Create a custom font object
     -- local courierFont = CreateFont("Courier12")                 -- use a font that has a fixed width
@@ -987,16 +1007,26 @@ function playerPriorityHeadings()
         local spacer = AceGUI:Create("Label")
         spacer:SetWidth(spacerSize)                             -- Adjust the width as needed
 
-        local addonVersion,configVersion,lastCheck,errorCode = checkPlayerAddon(rosterRec)
+        local addonVersion,configVersion,playerStatus,errorCode = checkPlayerAddon(rosterRec)
+        local statusText = "Offline"
+        if playerStatus then
+		    statusText = "Online"
+		end
 
-        if errorCode then
+        if errorCode then -- and error code means something is wrong with teh data like they dont exist / dont have the addon
             label:SetColor(1, 0, 0) -- Red color (RGB: 1, 0, 0)
 
             label.frame:SetScript("OnEnter", function()
                 GameTooltip:SetOwner(label.frame, "ANCHOR_TOPRIGHT")
-                GameTooltip:AddLine("Addon Version: "..addonVersion)
-                GameTooltip:AddLine("Config Version: "..configVersion)
-                GameTooltip:AddLine("Last checked: "..lastCheck) 
+                GameTooltip:AddLine("Player status:")
+                GameTooltip:AddLine("Config version: "..configVersion,1,1,1)
+                GameTooltip:AddLine("Addon version: "..addonVersion,1,1,1)
+                if playerStatus then
+                    GameTooltip:AddLine("Currently "..statusText,0,1,0)
+                else
+                    GameTooltip:AddLine("Currently "..statusText,1,0,0)
+                end
+
                 GameTooltip:Show()
             end)
 
@@ -1074,7 +1104,7 @@ function enterPriorityButtons()
     clearPriority:SetText("Clear Priorities")
     clearPriority:SetWidth(200)
     clearPriority:SetCallback("OnClick", function()
-            addon.PLdb.profile.config.playerSelections[1].playerLoot = {}
+            clearPriorities()
             fillTableColumn() 
             statusText("Priorities cleared and reset ")
 	    end)
@@ -1108,7 +1138,7 @@ end                        -- If we have a group of checkboxes we want to disabl
 function checkPlayerAddon(rosterRecIn)
     local addonVersion = "Not Loaded"
 	local configVersion = "Not Loaded"
-    local lastCheck = "Not checked"
+    local playerStatus = false
     local errorCode = false
 
     -- util.AddDebugData(rosterRecIn,"rosterRecIn")
@@ -1127,12 +1157,9 @@ function checkPlayerAddon(rosterRecIn)
         --util.AddDebugData(configVersion,"Config Version B")
 	end
 
-    if tonumber(rosterRecIn.lastCheck) > 0 then 
-		lastCheck = tostring(rosterRecIn.lastCheck) 
-	end
+    return addonVersion,configVersion,rosterRecIn.online, errorCode
 
-	return addonVersion,configVersion,lastCheck,errorCode
-end                                -- get the deatsil of the player config nad addon versions
+end                                -- get the details of the player config &  addon versions = online status
 
 function fillTableColumn()
     
@@ -1155,7 +1182,7 @@ function fillTableColumn()
 end                                 -- Start the process for filling the user selections
 
 
-------------- FRAME DATA FUCTIONS ---------------------------------------
+------------- DATA FUCTIONS ---------------------------------------
 
 function loadLootHistory()
     return
@@ -1182,7 +1209,7 @@ function addDataToTable()
 	    loadLootHistory()
 	else
          -- tableColumn - Loot through the loot data for this boss and add the rows
-   	    tbl = addon.PLdb.profile.config.bossLoot
+   	    tbl = addon.PLdb.global.bossLoot
         -- util.AddDebugData(currentBoss,"Looking for this boss loot table")
 
          for _, bossRec in ipairs(tbl) do
@@ -1232,11 +1259,13 @@ local returnRow = {}
 local playerRecord = {}
 local counter = 0
 
+
 -- local currentPlayersShown = getListOfHeadingsToDisplay()
 
     -- Loop through the list of players being displayed
     for _,player in pairs(thisAddon.guildUnit) do 
         local playerNumber = 0      -- What record in the table is that player
+        local usedSelection = {}
         -- util.AddDebugData(player,"Player details for priorities")
 
 	    -- Find the record that belongs to the current player if any in the stored priorities
@@ -1251,14 +1280,25 @@ local counter = 0
         -- If a player was found then get the priority they chose
         if playerNumber > 0 then
             returnRow[counter] = getPlayerInformation(player.unitName,itemId,"P")
-            -- util.AddDebugData(returnRow[counter],"Returned from getting player details")
+
+            --if playerNumber == 1 then
+            --    util.AddDebugData(returnRow,"getRanksByPlayer: return")
+            --end
             if returnRow[counter] < 0  then  -- if an error was returned
 			    returnRow[counter] = 0
+			end
+            -- if I have a rank but I have also used it convert it to a negative rank for display only
+            if returnRow[counter] > 0 then
+
+				    local priorityHistory = getPlayerInformation(player.unitName,"","PH")
+                    if  util.hasValue(priorityHistory,returnRow[counter]) then
+                        returnRow[counter] = returnRow[counter] * (-1)
+                    end
 			end
 		end
     end
 
-    -- util.AddDebugData(returnRow,"getRanksByPlayer: return")
+
     return returnRow
 end                                -- Called from addDataToTable to build the row of player selections ranks for each item
 
@@ -1316,10 +1356,15 @@ function addPlayerSelectionRowsV2(theScrollContainer, itemID,theSelections)   --
             -- Set the background color of the box based on the theSelections
             if rank == 0 then
                 box:SetBackdrop({bgFile = "Interface/Tooltips/UI-Tooltip-Background"})
-                box:SetBackdropColor(1, 0, 0, 0.5) -- Light red
+                box:SetBackdropColor(1, 0, 0, 0.75) -- Light red
             else
-                box:SetBackdrop({bgFile = "Interface/Tooltips/UI-Tooltip-Background"})
-                box:SetBackdropColor(0, 1, 0, 0.5) -- Light green
+                if rank <0 then
+                    box:SetBackdrop({bgFile = "Interface/Tooltips/UI-Tooltip-Background"})
+                    box:SetBackdropColor(1, 1, 0, 0.5) -- 
+                  else
+                    box:SetBackdrop({bgFile = "Interface/Tooltips/UI-Tooltip-Background"})
+                    box:SetBackdropColor(0, 1, 0, 0.75) -- Light green
+                end
             end
 
             -- Create a label for the theSelections
@@ -1328,7 +1373,8 @@ function addPlayerSelectionRowsV2(theScrollContainer, itemID,theSelections)   --
                 local boxText = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
                 boxText:SetPoint("CENTER", box, "CENTER")
                 boxText:SetFont("Fonts\\FRIZQT__.TTF", 16)
-                boxText:SetText(rank)
+                if rank<0 then boxText:SetTextColor(0,0,0) end
+                boxText:SetText(math.abs(rank)) -- convert to positive if negative
 		    end
 		end
 
@@ -1418,6 +1464,10 @@ function enterMyPriorities(theScrollContainer, myPriority, itemID,itemName)   --
         local theNewPriority = getPlayerInformation(thePlayer,itemID,"P")
         if tonumber(theNewPriority) > 0 then
             myPriority:SetText(tonumber(theNewPriority))
+            if util.hasValue(getPlayerInformation(thePlayer,0,"PH"),theNewPriority) then
+                -- util.AddDebugData(myPriority,"Priority editbox")
+                myPriority:SetDisabled(true) 
+			end
 		end
         myPriority:SetCallback("OnEnterPressed", function()
             local theEntry = tonumber(myPriority:GetText())
@@ -1431,13 +1481,16 @@ function enterMyPriorities(theScrollContainer, myPriority, itemID,itemName)   --
 
 			    if updateMade then
                     -- I know I am always player 1 
-                    addon.PLdb.profile.config.playerSelections[1].version = addon.PLdb.profile.config.playerSelections[1].version +1
+                    addon.PLdb.char.playerSelections[1].version = addon.PLdb.char.playerSelections[1].version +1
+                    statusText(format("%s: Priority for %s has been set",util.Colorize("UPDATED:", "accent",false),itemName))
+                else
+                    statusText(format("%s: Priority for %s has NOT been set.  Check chat for warning or errors.",util.Colorize("UPDATED:", "accent",false),itemName))
 				end
                 if updateFrame then -- refresh the view
                     fillTableColumn()
 				end
                 -- util.AddDebugData(theEntry,"Priority entered for "..itemName)
-                statusText(format("%s: Priority for %s has been set",util.Colorize("UPDATED:", "accent",false),itemName))
+   
 			else
                 local itemName = GetItemInfo(itemID)
                 util.Print("WARNING: Priority not a number for "..itemName)
@@ -1465,7 +1518,7 @@ end                         -- Called from addDataToTable to add the items and i
 
 function getListOfHeadingsToDisplay()
     local returnHeadings = {"Hold"}
-    local testData = addon.PLdb.profile.config.useTestData 
+    local testData = addon.PLdb.profile.useTestData 
 
     if tableColumnContent == "S" then
         --if testData then                                    -- Display player names
@@ -1510,13 +1563,12 @@ function itemFilteredIn(itemID)
     --
     -- Get the item details for the type of item it is sword, mail, etc
     -- get the current setting (filterWord)
-    -- check the type (cloth) nad the class (sword) and see if they match the filter
+    -- check the type (cloth etc) and the class (sword etc) and see if they match the filter
     --
 
     local _, _, _, itemEquipLoc, _, itemClassId, subclassID = GetItemInfoInstant(itemID)
     local itemArmourTypeToFind = "#"
     local itemLocationToFind = "#"
-
 
     -- util.AddDebugData(itemID.."  "..itemEquipLoc.."  "..itemClassId.." "..subclassID,"Item details")
     -- what slot does it go into - get the letter that we search for
@@ -1524,7 +1576,7 @@ function itemFilteredIn(itemID)
 
     -- If its Armour then is it cloth, leather etc - get the correct letter to search for
   	if itemClassId==4 and subclassID>0 and subclassID<5 then
-        itemArmourTypeToFind = addon.PLdb.profile.config.filterArmourType[subclassID]
+        itemArmourTypeToFind = addon.PLdb.global.filterArmourType[subclassID]
 	end
     
     local filterWord = convertFiltertoWord(thisAddon.filters.currentFilter)
@@ -1541,7 +1593,7 @@ function itemFilteredIn(itemID)
         -- This item does not meet the class or subclass constraints so reject it
 	    return false
 	else
-        -- Now we have a matching item start to ap0ply other filter elements
+        -- Now we have a matching item start to apply other filter elements
         if thisAddon.filters.onlyMyPriority then
             -- util.AddDebugData(itemID,"only my priority")
             if getPlayerInformation(util.unitname("player"),itemID,"P") >0 then
@@ -1574,32 +1626,7 @@ function convertFiltertoWord(theFilter)
     return word
 end
 
-function addon:joinedRaid()
-
-    if IsInRaid() then
-
-        -- numMembers = GetNumGroupMembers([groupType])
-        loadRaidMembers()
-
-        if iAmTheLootManager and not thisAddon.priorityLootRollsActive then
-		    addon:yesnoBox("Do you wish to swap the Priority Loot allocations state for this raid ?","activateLootRolls")
-		end
-
-	    if not thisAddon.priorityLootRollsActive and isPlayerInRaid(addon.PLdb.profile.config.nameLootManager) then
-            addon:buildPL_ROLL_CHECK(addon.PLdb.profile.config.nameLootManager)  -- send a message to find out if loot rolls should be active 		
-		end
-
-	end
-
-        -- make sure every has my latest priorities
-        -- lock my abililty to change my priorities
-        -- 
-        
-end
-
-
 ------------- VISUAL SUPPORT FUNCTIONS ----------------------------------
-
 
 function addon:ToggleOptions()
 	
@@ -1613,9 +1640,9 @@ function addon:ToggleOptions()
 end                             -- show and hide OPtions window
 
 function addon:ToggleMinimapIcon()
-    -- util.AddDebugData(self.PLdb.profile.config.minimap.hide, "Minimap button status")
+    -- util.AddDebugData(self.PLdb.profile.minimap.hide, "Minimap button status")
 
-    self.PLdb.profile.config.minimap.hide = not self.PLdb.profile.config.minimap.hide
+    self.PLdb.profile.minimap.hide = not self.PLdb.profile.minimap.hide
     UpdateMinimapIcon()
 end                         -- show and hide minimap icon
 
@@ -1628,11 +1655,31 @@ function addon:ToggleLootWindow()
 end                          -- Show and hide loot window
 
 function UpdateMinimapIcon()                  
-    if addon.PLdb.profile.config.minimap.hide then
+    if addon.PLdb.profile.minimap.hide then
         LDBIcon:Hide(MyAddOnName)
     else
         LDBIcon:Show(MyAddOnName)
     end
 end                               -- Show or hide the minimap icon
 
+function addon:processSlashCommnands(msg)
+
+        if msg == "help" or msg == "?" then
+                util.Print("Commands:")
+                print(format("%s or %s: Toggles the options panel.", util.Colorize("/PriorityLoot", "accent"), util.Colorize("/PL", "accent")))
+                print(format("%s %s: Resets current profile to default settings.", util.Colorize("/PL", "accent"), util.Colorize("reset", "value")))
+                print(format("%s %s: Toggles the minimap icon.", util.Colorize("/PL", "accent"), util.Colorize("minimap", "value")))
+                print(format("%s %s: Toggles the Priority Loot window", util.Colorize("/PL", "accent"), util.Colorize("window", "value")))
+                print()
+        elseif msg == "reset" or msg == "default" then
+                self.PLdb:ResetProfile()
+        elseif msg == "minimap" then
+                self:ToggleMinimapIcon()
+        elseif msg == "window" then
+                self:ToggleLootWindow()
+        else
+                self:ToggleOptions()
+        end
+       
+end
 

@@ -27,22 +27,6 @@ local function CreateBorder(self, barExists)
     end
 end
 
-function addon:inPL_ADDON_ACTIVE(theFlag)
-
-    if thisAddon.priorityLootRollsActive then
-        thisAddon.priorityLootRollsActive = false
-        broker.icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\logo"
-        util.AddDebugData(thisAddon.priorityLootRollsActive,"Loot rolls not active")
-    else
-        thisAddon.priorityLootRollsActive = true
-        broker.icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\green_logo"
-        util.AddDebugData(thisAddon.priorityLootRollsActive,"Loot rolls active")
-	end
-
-	addon:eventSetup("LootRoll")
-    
-end
-
 local encounter = 0
 
 function addon:UpdateEncounter(event, encounterID)
@@ -101,10 +85,13 @@ function addon:RollEvent(event, rollID)
 
     util.AddDebugData(itemData,"Item detail for Loot roll")
 
-    if canNeed then
-	    addon:AddItem(itemData)
-    end
+    if canNeed and not getPlayerInformation("none",itemID,"RP") then -- remove an item if you do not have the highest priority
+	    itemData.canNeed = false
+        canNeed = false
+	end
 
+    addon:AddItem(itemData)
+    
     C_Timer.After(0.5, function ()
         if #lootRoll.items ~= 0 then
             addon:OpenGUI()
@@ -114,13 +101,13 @@ function addon:RollEvent(event, rollID)
 end
 
 function addon:createRollFrame()
-	local width = self.PLdb.profile.config.GUI.width or 500
-    local height = self.PLdb.profile.config.GUI.height or 400
+	local width = self.PLdb.profile.GUI.width or 500
+    local height = self.PLdb.profile.GUI.height or 400
 
     lootRoll.frame = CreateFrame("Frame", "MyLootRollContainer", UIParent)
     lootRoll.frame:SetSize(width, height)
-    lootRoll.frame:SetPoint(self.PLdb.profile.config.GUI.point, UIParent, self.PLdb.profile.config.GUI.point, self.PLdb.profile.config.GUI.xPos, self.PLdb.profile.config.GUI.yPos)
-    lootRoll.frame:SetScale(self.PLdb.profile.config.GUI.scale)
+    lootRoll.frame:SetPoint(self.PLdb.profile.GUI.point, UIParent, self.PLdb.profile.GUI.point, self.PLdb.profile.GUI.xPos, self.PLdb.profile.GUI.yPos)
+    lootRoll.frame:SetScale(self.PLdb.profile.GUI.scale)
     
 	lootRoll.bg = lootRoll.frame:CreateTexture(nil, "BACKGROUND")
 	lootRoll.bg:SetAllPoints(true)
@@ -424,9 +411,9 @@ function addon:HideGUI()
 end
 
 function addon:ApplyFontString(fontString)
-    local fontName = LSM:Fetch("font", addon.PLdb.profile.config.GUI.font)
-    local fontSize = addon.PLdb.profile.config.GUI.fontSize or 12
-    local fontFlags = addon.PLdb.profile.config.GUI.fontFlags or ""
+    local fontName = LSM:Fetch("font", addon.PLdb.profile.GUI.font)
+    local fontSize = addon.PLdb.profile.GUI.fontSize or 12
+    local fontFlags = addon.PLdb.profile.GUI.fontFlags or ""
 
     fontString:SetFont(fontName, fontSize, fontFlags)
 end

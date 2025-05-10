@@ -8,6 +8,33 @@ local util = thisAddon.Utils
 
 ]]--
 
+---general functions ---
+
+function addon:joinedRaid()
+
+    if IsInRaid() then
+
+        -- numMembers = GetNumGroupMembers([groupType])
+        loadRaidMembers()
+
+        if iAmTheLootManager and not thisAddon.priorityLootRollsActive then
+		    addon:yesnoBox("Do you wish to swap the Priority Loot allocations state for this raid ?","activateLootRolls")
+		end
+
+	    if not thisAddon.priorityLootRollsActive and isPlayerInRaid(addon.PLdb.char.guildLootManager) then
+            addon:buildPL_ROLL_CHECK(addon.PLdb.char.guildLootManager)  -- send a message to find out if loot rolls should be active 		
+		end
+
+	end
+
+    -- make sure every has my latest priorities
+   
+end
+
+function addon:leftRaid()
+    thisAddon.priorityLootRollsActive = false
+end
+
 --- update data 
 
 function updatePlayerItemPriority(thePlayer,theItem,thePriority)
@@ -16,7 +43,7 @@ function updatePlayerItemPriority(thePlayer,theItem,thePriority)
 
     local recToUpdate = 0
     local itemToUpdate = getPlayerInformation(thePlayer,theItem,"PP") 
-    local numberOfPriorities = addon.PLdb.profile.config.numberOfPriorities  --  The number of priorities I am allowed to have active
+    local numberOfPriorities = addon.PLdb.char.numberOfPriorities  --  The number of priorities I am allowed to have active
     local recUpdated,duplicatePriority,refreshFrame = false
 
     if thePlayer == 1 then
@@ -25,9 +52,11 @@ function updatePlayerItemPriority(thePlayer,theItem,thePriority)
          recToUpdate = getPlayerInformation(thePlayer,"","PP")  
 	end
 
-    if thisAddon.priorityHistory[thePriority] then -- If the number is blocked then
-        util.Print(   format("%s: Priority %i is blocked and will not be added",util.Colorize("WARNING:", "accent",false),thePriority))
-	    statusText(format("%s: Priority %i is blocked and will not be added",util.Colorize("WARNING:", "accent",false),thePriority))
+    local priorityHistory = getPlayerInformation(thePlayer,"","PH")  
+
+    if util.hasValue(priorityHistory,thePriority) then -- If the number is blocked then
+        util.Print(   format("%s: Priority %i is blocked and will not be used or updated",util.Colorize("WARNING:", "accent",false),thePriority))
+	    statusText(format("%s: Priority %i is blocked and will not be used or updated",util.Colorize("WARNING:", "accent",false),thePriority))
         return false
 	end
 	
@@ -75,7 +104,7 @@ function updatePlayerItemPriority(thePlayer,theItem,thePriority)
     return true,refreshFrame
 end
 
-function updateGuildRecord(unitNameIn,hasAddonIn,lastCheckIn,configVersionIn)
+function updateGuildRecord(unitNameIn,hasAddonIn,configVersionIn)
 -- update the record for guild emebers wit hthe latest config nad app versions
 -- this is reported in the color of the names in the main frame
 
@@ -84,10 +113,30 @@ function updateGuildRecord(unitNameIn,hasAddonIn,lastCheckIn,configVersionIn)
         if guildMember.unitName == unitNameIn then   	
             thisAddon.guildUnit[idx].hasAddon = hasAddonIn
 			thisAddon.guildUnit[idx].configVersion = configVersionIn
-			thisAddon.guildUnit[idx].lastCheck = lastCheckIn
+			-- thisAddon.guildUnit[idx].lastCheck = lastCheckIn
             util.AddDebugData(unitNameIn,"member guild data updated")
             return
 		end
+	end
+end
+
+function addon:configUpdate()
+    addon.PLdb.char.configVersion = C_DateAndTime.GetServerTimeLocal()
+end
+
+function clearPriorities()
+    local priorityHistory = thisAddon.playerSelections[1].priorityHistory  
+    local i = 1
+    util.AddDebugData(priorityHistory,"priorityHistory")
+
+    while i < #thisAddon.playerSelections[1].playerLoot do
+        --util.AddDebugData(i,"counter")
+        --util.AddDebugData(thisAddon.playerSelections[1].playerLoot[i],"thisAddon.playerSelections[1].playerLoot[i]")
+	    if not util.hasValue(priorityHistory,thisAddon.playerSelections[1].playerLoot[i][2]) then -- If the number is not blocked then
+            table.remove(thisAddon.playerSelections[1].playerLoot, i)
+        else
+            i = i + 1
+	    end
 	end
 end
 
@@ -107,26 +156,30 @@ function isPlayerInRaid(thePlayer)
     return false
 end
 
+function isPlayerOnline(thePlayer)
+    
+end -- TO BE COMPLTED
+
 function addon:getGuildDetails()
     
     if IsPlayerInGuild() then
 
         finishedInitalising = true 
 
-        addon.PLdb.profile.config.myGuildName, _ , _ , addon.PLdb.profile.config.myGuildRealm = GetGuildInfo("player")
+        addon.PLdb.char.myGuildName, _ , _ , addon.PLdb.char.myGuildRealm = GetGuildInfo("player")
     
-        if addon.PLdb.profile.config.myGuildRealm == nil then
-            addon.PLdb.profile.config.myGuildRealm = GetRealmName()
+        if addon.PLdb.char.myGuildRealm == nil then
+            addon.PLdb.char.myGuildRealm = GetRealmName()
         end
 
-        util.AddDebugData(addon.PLdb.profile.config.myGuildName,"Guild found ")
+        util.AddDebugData(addon.PLdb.char.myGuildName,"Guild found ")
 
         loadGuildMembers()
         fillTableColumn()
 
     else
         util.AddDebugData(true,"No guild found ")
-        addon.PLdb.profile.config.myGuildName = "ERROR:  NO guild found "
+        addon.PLdb.char.myGuildName = "ERROR:  NO guild found "
     end
 end
 
@@ -137,7 +190,7 @@ function getElementsFromRaids(whatToReturn,searchValue1,searchValue2) -- pass in
 -- "bossname"        searchValue1={provide the bossId},searchValue2={}   -- Get the name based on the id
 
     local returnArray = {}
-    lootTable = addon.PLdb.profile.config.bossLoot
+    lootTable = addon.PLdb.global.bossLoot
 
     if whatToReturn == "raid" then                     
         return false
@@ -201,25 +254,26 @@ function checkIExist()
     -- util.AddDebugData(myName,"Adding character Name")
 
     -- Insert the new item at the beginning of the table
-    table.insert(addon.PLdb.profile.config.playerSelections, 1, myNewData)
+    table.insert(addon.PLdb.char.playerSelections, 1, myNewData)
 
     util.Print(format("Character %s added to playSelections data", util.Colorize(myName, "accent",false)))
 
     -- Set the default to my armour type
     local myClassName,myClass=UnitClassBase("player")
 
-    for _,armourType in pairs(addon.PLdb.profile.config.classArmour) do
+    for _,armourType in pairs(addon.PLdb.char.classArmour) do
         if myClass == armourType.class then
-            addon.PLdb.profile.config.myClassName = myClassName
-            addon.PLdb.profile.config.myArmourType = armourType.armour
+            addon.PLdb.char.myClassName = myClassName
+            addon.PLdb.char.myArmourType = armourType.armour
             util.AddDebugData(armourType.armour," Armour type set for "..myClassName)
         end
     end
-end                                     -- makesure my record exists and is current in teh playerSelections data
+end                                     -- make sure my record exists and is current in teh playerSelections data
 
 function getPlayerInformation(theName,theItemID,theFlag)     -- return details from the player priority date on the player and selected items
     local recordName,myNameIn = ""
 	local playerRollList = {}
+    local itemFound = false
 
     -- theFlag = "PP" then return the Players Position in the data.  theItem not required
 	-- theFlag = "A" then return the All the player details and selections.  theItem not required
@@ -227,15 +281,20 @@ function getPlayerInformation(theName,theItemID,theFlag)     -- return details f
     -- theFlag = "N" then return the Number of the selected item. 
     -- theFlag = "AP" does AnyPlayer have this item selected
     -- theFlag = "RP" Does the player have top or equal top roll priority pass in util.unitname(unit) the item ID
+    -- theFlag = "PH" Return the player priority history. Item not required.
     
 	-- util.AddDebugData(theName,"Looking for stuff for  ")
-	for recCounter,playerList in ipairs(addon.PLdb.profile.config.playerSelections) do
+	for recCounter,playerList in ipairs(addon.PLdb.char.playerSelections) do
 
         --util.AddDebugData(theName," inspecting player agaisnt ")
 
         recordName = playerList.player
         -- myNameIn = theName
 
+        if theFlag == "PH" then
+            return playerList.priorityHistory
+        end
+		
         if recordName == theName or theFlag == "AP" or theFlag == "RP" then
             -- if theFlag == "RP" then util.AddDebugData(theName,"RP flag name in") end
             if theFlag == "PP" then
@@ -259,8 +318,10 @@ function getPlayerInformation(theName,theItemID,theFlag)     -- return details f
 					    return  itemCount
 					end
                     if theFlag == "RP" then
-                        local newEntry = {recordName,item[2]} -- create a nwEntry incase they are going to be included
+                        local newEntry = {recordName,item[2]} -- create a newEntry incase they are going to be included
                         util.AddDebugData(item,"check")
+
+                        itemFound = true
 
                         -- if the table is empty or the priority I have is the same as the one that is there already
                         if next(playerRollList) == nil or newEntry[2] == playerRollList[1][2] then -- If its the same priority than the first entry then 
@@ -272,30 +333,37 @@ function getPlayerInformation(theName,theItemID,theFlag)     -- return details f
                             playerRollList = newEntry
                             -- util.AddDebugData(newEntry,"All existing records replaced with")
                         end
-
 					end
                 end
             end
+            if theFlag == "P" then return 0 end
 			if theFlag ~= "AP" and theFlag ~= "RP" then return -1 end    -- Item not found for this player but if we are checking all ignore
+
         end
     end
 
+
     if theFlag == "RP" then
-        util.AddDebugData(playerRollList,"Added to roll table")
-        for _,rollRecord in ipairs(playerRollList) do
-		    if rollRecord[1] == theName then
-			    return true
-			end
-        end
-		return false
+        if itemFound then
+            util.AddDebugData(playerRollList,"Added to roll table")
+            for _,rollRecord in ipairs(playerRollList) do
+		        if rollRecord[1] == theName then
+			        return true
+			    end
+            end
+		    return false
+		else
+		    return true -- if the item is not found then defalt to normal rolls whatever that is
+		end
 	end
 
-    -- util.AddDebugData(theName,"getPlayerInformation: Player or item not found")
+    if theFlag == "PH" then return {} end
+	
     return 0 -- player not found and the item not found for any player
 end                            -- based on the flag sent find player selection information
 
 function getItemSubType(itemEquipLoc,flag)
-    for _, itemLocation in ipairs(addon.PLdb.profile.config.LootItemSubType) do
+    for _, itemLocation in ipairs(addon.PLdb.global.LootItemSubType) do
 	    if itemEquipLoc == itemLocation[1] then
             if flag=="Name" then
                 return itemLocation[2]  -- return normalised name
@@ -313,18 +381,18 @@ function getGuildMember(theName)
             returnRecord.hasAddon = guildMember.hasAddon
 			returnRecord.configVersion = guildMember.configVersion
 			returnRecord.lastCheck = guildMember.lastCheck
-            return true,returnRecord
+            return true,returnRecord,idx
 		end
 	end
-    return false,{}
+    return false,{},0
 end
 
 --- text functions
 
 function addon:trimText(text)
-    if addon.PLdb.profile.config.GUI.trimText then
-        if #text > addon.PLdb.profile.config.GUI.maxTextAmount then
-            return text:sub(1, self.PLdb.profile.config.GUI.maxTextAmount).."..."
+    if addon.PLdb.profile.GUI.trimText then
+        if #text > addon.PLdb.profile.GUI.maxTextAmount then
+            return text:sub(1, self.PLdb.profile.GUI.maxTextAmount).."..."
         else
             return text
         end
@@ -363,41 +431,42 @@ end
 
 function addon:checkDbVersion()
 
-    -- my current database
-    self.config = self.PLdb.profile.config
+        -- rewrite this for three databases
+--    -- my current database
+--    self.config = self.PLdb.profile.config
 
-	if self.config then
-        util.AddDebugData(self.config.currentDbVersion,"My current version")
-		--Unversioned databases are set to v. 1
-		if self.config.currentDbVersion == nil then self.config.currentDbVersion = 1 end
+--	if self.config then
+--        util.AddDebugData(self.config.currentDbVersion,"My current version")
+--		--Unversioned databases are set to v. 1
+--		if self.config.currentDbVersion == nil then self.config.currentDbVersion = 1 end
 
-		--Handle database version checking and upgrading if necessary
-		local startVersion = self.config.currentDbVersion
-        util.AddDebugData(self.config.currentDbVersion,"self.config.currentDbVersion")
-		self:upgradeDatabase(self.config)
-		if startVersion ~= self.config.currentDbVersion then
-			print(("%s configuration database upgraded from v.%s to v.%s"):format(MyAddOnName,startVersion,self.config.currentDbVersion))
-		end
+--		--Handle database version checking and upgrading if necessary
+--		local startVersion = self.config.currentDbVersion
+--        util.AddDebugData(self.config.currentDbVersion,"self.config.currentDbVersion")
+--		self:upgradeDatabase(self.config)
+--		if startVersion ~= self.config.currentDbVersion then
+--			print(("%s configuration database upgraded from v.%s to v.%s"):format(MyAddOnName,startVersion,self.config.currentDbVersion))
+--		end
 
-	end
-end
+--	end
+end -- TO BE COMPELTED
 
 function addon:upgradeDatabase(config)
 
     -- if the default database I am loading >= what I have now 
-	if config.currentDbVersion >= addon.PLdb.profile.config.currentDbVersion then 
-		return config
-	else
-        -- upgrade my existing database
-		local nextVersion = config.currentDbVersion + 1
-        util.AddDebugData(self.config.currentDbVersion,"Upgrade config dbVersion")
-		local migrationCall = self.migrationPaths[nextVersion]
+--	if config.currentDbVersion >= addon.PLdb.profile.currentDbVersion then 
+--		return config
+--	else
+--        -- upgrade my existing database
+--		local nextVersion = config.currentDbVersion + 1
+--        util.AddDebugData(self.config.currentDbVersion,"Upgrade config dbVersion")
+--		local migrationCall = self.migrationPaths[nextVersion]
 
-		if migrationCall then migrationCall(config) end
+--		if migrationCall then migrationCall(config) end
 
-		config.currentDbVersion = nextVersion
-		return self:upgradeDatabase(config)
-	end
+--		config.currentDbVersion = nextVersion
+--		return self:upgradeDatabase(config)
+--	end
 
-end    
+end    -- TO BE COMPELTED
 

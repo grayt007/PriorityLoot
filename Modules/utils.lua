@@ -21,8 +21,8 @@ local hexFontColors = {
 
 
 function util.AddDebugData(theData, theString)
-	if  addon.PLdb.profile.config.doYouWantToDebug then
-        if addon.PLdb.profile.config.doYouHaveDevTool then
+	if  addon.PLdb.profile.doYouWantToDebug then
+        if addon.PLdb.profile.doYouHaveDevTool then
 		    DevTool:AddData(theData, theString)
         else
             print("DEBUG:",theString,theData )
@@ -192,7 +192,7 @@ end
 function util.findItemSubType(theSubType)
     util.AddDebugData(theSubType,"Passed in")
 	
-    tbl = addon.PLdb.profile.config.LootItemSubType
+    tbl = addon.PLdb.profile.LootItemSubType
     for _,row in ipairs(tbl) do
         if row[1] == theSubType then return row[2] end
 	end
