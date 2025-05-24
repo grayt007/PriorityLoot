@@ -14,6 +14,8 @@ lootRoll = {}
 local util = thisAddon.Utils
 
 --Ace3 addon application object & Libraries
+--local LibCompress = LibStub:GetLibrary("LibCompress")
+--local LibEncoder = LibCompress:GetAddonEncodeTable()
 local addon = LibStub("AceAddon-3.0"):NewAddon(MyAddOnName, "AceConsole-3.0", "AceComm-3.0", "AceSerializer-3.0", "AceEvent-3.0", "AceTimer-3.0")
 local ACD = LibStub("AceConfigDialog-3.0")      -- Add an option table into the Blizzard Interface Options panel.
 local AceGUI = LibStub("AceGUI-3.0")  
@@ -21,10 +23,11 @@ local ACR = LibStub("AceConfigRegistry-3.0")
 local LDB = LibStub("LibDataBroker-1.1")
 local LDBIcon = LibStub("LibDBIcon-1.0")
 local LSM = LibStub("LibSharedMedia-3.0")
---local LibCompress = LibStub:GetLibrary("LibCompress")
---local LibEncoder = LibCompress:GetAddonEncodeTable()
 
-
+-- Reference the Loot history 
+local lootHistory = addon:NewModule("lootHistory", "AceEvent-3.0", "AceConsole-3.0")
+-- local lootHistory = addon:GetModule("lootHistory")
+	
 -- Addon globals
 _G[MyAddOnName] = addon
 addon.LibRange = LibRange
@@ -34,14 +37,16 @@ finishedInitalising = false -- there is a delay in getting guild info in the cli
 thisAddon.priorityLootRollsActive = false -- Has the loot manager activated the addon for this raid.
 
 version = 0.73  -- date("%m%d%H%M")
-local headingsExist = false
 iAmTheLootManager = false
 iAmTheGM = false
 local tableColumnContent = "S"
 local currentBoss = "225822"   -- return the bossId of the first boss
 local raidUnit = {}            -- the unitID in a raid is "raidN" the raid member with raidIndex N (1,2,3,...,40).
 thisAddon.guildUnit = {}
+local playerStartPosition = 1  -- to control the number of players displayed.
+local playerEndPosition = 15   -- to control teh number of players displayed
 
+local headingsExist = false
 	
 -- Minimap button functionality
 local broker = LDB:NewDataObject(MyAddOnName, {
@@ -78,10 +83,10 @@ local broker = LDB:NewDataObject(MyAddOnName, {
 
             if IsRightControlKeyDown() then 
                 -- buildPL_RANK_CHECK()
-                addon:yesnoBox("Do you wish to swap the Priority Loot allocations state for this raid ?","activateLootRolls")
-            end
-
-            if IsShiftKeyDown() then
+                addon:dialogBox("ROLLSTATUS","Do you wish to change on the Priority Loot allocations for this raid ?","activiateLootRolls")
+            elseif IsLeftControlKeyDown() then 
+                -- buildPL_RANK_CHECK()
+                addon:dialogBox("YESNOBOX","Testing the Yes/No box","activiateLootRolls")            elseif IsShiftKeyDown() then
                 addon:ToggleMinimapIcon()
                 if addon.PLdb.profile.minimap.hide then
                     util.Print(format("Minimap icon is now hidden. Type %s %s to show it again.", util.Colorize("/auga", "accent"), util.Colorize("minimap", "accent")))
@@ -111,10 +116,9 @@ function addon:OnInitialize()                                               -- M
 
     -- util.Print("The dbName for settings is "..dbName)
 
-    --  New DB  https://www.wowace.com/projects/ace3/pages/ace-db-3-0-tutorial 
+    --  New DB for core loot priorities 
    	addon.PLdb = LibStub("AceDB-3.0"):New(dbName, defaultSettings)    
     LDBIcon:Register(MyAddOnName, broker, self.PLdb.profile.minimap)       -- 3rd parameter is where to store the  hide/show + location of button 
-   
     util.AddDebugData(defaultSettings,"Default Settings")
     util.AddDebugData(addon.PLdb,"Settings")
 
@@ -251,7 +255,7 @@ function addon:eventSetup(theAction)
                                                                      -- If they are current ignore, if not send a targeted message with Data message
         addon:RegisterComm("PL_RANK_UPDATE","inPL_RANK_UPDATE")      -- Process a message to update a players details if PL_RANK_CHECK promted a response from anophter player
         addon:RegisterComm("PL_CONFIG_UPDATE","inPL_CONFIG_UPDATE")  -- The Loot Manager has updated the configuration - activated by Loot Manager
-        addon:RegisterComm("PL_ADDON_ACTIVE","inPL_ADDON_ACTIVE")    -- The Loot Manager has updated the configuration - activated by loot manager
+        -- addon:RegisterComm("PL_ADDON_ACTIVE","inPL_ADDON_ACTIVE")    -- The Loot Manager has updated the configuration - activated by loot manager
         addon:RegisterComm("PL_ROLL_CHECK","inPL_ROLL_CHECK")        -- Asking the loot manager if Loot Rolls are active
         addon:RegisterComm("PL_CONFIG_CHECK","inPL_CONFIG_CHECK")    -- Check the configuration with the loot manager
     end
@@ -346,7 +350,7 @@ function loadGuildMembers()
     thisAddon.guildUnit = addon.PLdb.char.guildMembers
 
     for gmc=1,numTotalGuildMembers do
-        local memberName, _, memberRankIndex, _, _, _, _, _, memberIsOnline, _, _, _, _, _, _, _, memberGUID = GetGuildRosterInfo(gmc)
+        local memberName, _, memberRankIndex, _, _, _, _, _, memberIsOnline, _, memberClass, _, _, _, _, _, memberGUID = GetGuildRosterInfo(gmc)
         local itsMe = false
 
 --		util.AddDebugData(memberName,"My name is ")
@@ -407,8 +411,19 @@ function loadGuildMembers()
                if not memberFound then
                    util.AddDebugData(memberName,"Guild member added to DB")
 
+                   memberClassID =  getClassID(memberClass) -- convert name to classID
+
                    memberRecord.unitName = memberName
                    memberRecord.unitRank = memberRankIndex
+                   memberRecord.memberClass = memberClassID
+
+				   memberRecord.armourType  = addon.PLdb.global.classInfo[memberClassID] -- getArmourType(memberClassID)
+                   memberRecord.tierGroup = addon.PLdb.global.classInfo[memberClassID][2]
+
+                   util.AddDebugData(memberClassID,"member class ID")
+                   util.AddDebugData(memberRecord.armourType,"member armour")
+                   util.AddDebugData(memberRecord.tierGroup,"member class tier group")
+                
 
                    if itsMe then
 			   	       memberRecord.hasAddon = version                            
@@ -447,7 +462,7 @@ function loadGuildMembers()
 		end
 	end
 	    
-    -- util.AddDebugData(thisAddon.guildUnit,"Should be the correct guild list after changes")
+    util.AddDebugData(thisAddon.guildUnit,"Should be the correct guild list after changes")
 end                         -- load and process the guild roster to identify roles and load data
 
 function loadRaidMembers()
@@ -457,7 +472,7 @@ function loadRaidMembers()
     for i=1,MAX_RAID_MEMBERS do      
 		--name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML = GetRaidRosterInfo(raidIndex)
 
-        local unitID = thisADdon.raidUnit[i]
+        local unitID = thisAddon.raidUnit[i]
         local unitName = GetRaidRosterInfo(i) or "none"
         local itsMe = UnitIsUnit('player',unitID)
 
@@ -500,36 +515,67 @@ end
 function updateRosterToGuild()
 
 	wipe(thisAddon.roster) 
-    local rosterCount = 1   
-	
+    local rosterCount = 2 -- I am the first position  
+    local playerCounter = 1
+	local maxPlayers = #thisAddon.guildUnit
+    local displayMaxPlayers = addon.PLdb.profile.GUI.displayMaxPlayers
+
+    if displayMaxPlayers > maxPlayers then
+	    displayMaxPlayers = maxPlayers
+	end
+    if playerStartPosition <= 1  then 
+		playerStartPosition = 1     
+        playerEndPosition = displayMaxPlayers
+	end
+    if playerEndPosition > maxPlayers then
+		playerEndPosition=maxPlayers    
+        playerStartPosition = playerEndPosition - displayMaxPlayers
+        endOfPlayers = true
+    else
+        endOfPlayers = false
+	end
+
+    -- util.AddDebugData(addon.PLdb.char.myClassID,"my class ID")
+    -- util.AddDebugData(addon.PLdb.char.myTierGroup,"my Tier group")
+    -- util.AddDebugData(addon.PLdb.char.myArmourType,"My Armour type")
+
     for idx,guildMember in ipairs(thisAddon.guildUnit) do
 	
-        --if util.hasValue(addon.PLdb.char.guildRaidRanks,guildMember.unitRank) then
+            -- The first unit is me because we forced that when loading guildUnit
+	        local itIsMe =  UnitIsUnit(util.unitname('player'),guildMember.unitName) 
 
-            -- The first unit is me becuase wee forced that when loading guildUnit
-	        local notMe = not UnitIsUnit('player',guildMember.unitName) 
+            -- util.AddDebugData(guildMember.armourType,"Character armour type")
 
-            -- util.AddDebugData(util.getShortName(guildMember.unitName),"Guild member added to headings")
+            if not itIsMe and playerCounter >= playerStartPosition and (playerStartPosition + rosterCount) <= playerEndPosition then
+                if (not thisAddon.filters.myClassOnly or (thisAddon.filters.myClassOnly and guildMember.memberClass == addon.PLdb.char.myClassID)) and
+				   (not thisAddon.filters.myTierOnly or (thisAddon.filters.myTierOnly and guildMember.tierGroup == addon.PLdb.char.myTierGroup)) and
+				   (not thisAddon.filters.myArmourOnly or (thisAddon.filters.myArmourOnly and guildMember.armourType == addon.PLdb.char.myArmourType)) then
 
-            thisAddon.roster[rosterCount] = {}
-            thisAddon.roster[rosterCount].unitID = rosterCount                                  -- does not really matter for the guild roster     
-            thisAddon.roster[rosterCount].unitName = util.getShortName(guildMember.unitName)    -- set to my name
+                    thisAddon.roster[rosterCount] = {}
+                    thisAddon.roster[rosterCount].unitID = rosterCount                                  -- does not really matter for the guild roster     
+                    thisAddon.roster[rosterCount].unitName = util.getShortName(guildMember.unitName)    -- set to my name
 
-            if notMe then 
-                thisAddon.roster[rosterCount].hasAddon = guildMember.hasAddon                       -- has or does not have the PL addon
-                thisAddon.roster[rosterCount].configVersion = guildMember.configVersion
-                thisAddon.roster[rosterCount].lastCheck = guildMember.lastCheck                     -- we want to check some basics once and only once
-                thisAddon.roster[rosterCount].online = guildMember.online  
-                -- util.AddDebugData(util.getShortName(guildMember.unitName),"Guild member added to headings")
-            else
+                    thisAddon.roster[rosterCount].hasAddon = guildMember.hasAddon                       -- has or does not have the PL addon
+                    thisAddon.roster[rosterCount].configVersion = guildMember.configVersion
+                    thisAddon.roster[rosterCount].lastCheck = guildMember.lastCheck                     -- we want to check some basics once and only once
+                    thisAddon.roster[rosterCount].online = guildMember.online  
+                    -- util.AddDebugData(util.getShortName(guildMember.unitName),"Guild member added to headings")
+                    rosterCount = rosterCount + 1
+				end
+			end
+            if itIsMe then -- I am always the first person
+                thisAddon.roster[1] = {}
+                thisAddon.roster[1].unitID = rosterCount                                  
+                thisAddon.roster[1].unitName = util.getShortName(guildMember.unitName)    
 	            thisAddon.roster[1].hasAddon = version                            
                 thisAddon.roster[1].lastCheck = addon.PLdb.char.lastConfigCheck                         
 	            thisAddon.roster[1].configVersion = addon.PLdb.char.configVersion
                 thisAddon.roster[1].online = true
-		    end	
-            rosterCount = rosterCount + 1
-		--end			
+            end
+            playerCounter = playerCounter + 1
+            if playerStartPosition + rosterCount == playerEndPosition then return end
 	end
+    -- util.AddDebugData(thisAddon.roster,"Scrolling the roster")
 end                     -- change what is displayed in the table frame to guild members
 
 function updateRosterToRaid()
@@ -621,7 +667,7 @@ function buildMainLootWindow()
     thisAddon.MainLootFrame = AceGUI:Create("Frame")
 
     local count = 1
-
+    
     -- Create Main Loot Form
     thisAddon.MainLootFrame:SetTitle("Priority Loot")
     thisAddon.MainLootFrame:SetStatusText("Priority Loot Review Window")
@@ -894,9 +940,7 @@ function buildFilterColumnBottom()
     showLootHistory:SetText("Show Loot History")
     showLootHistory:SetWidth(200)
     showLootHistory:SetCallback("OnClick", function()
-            tableColumnContent = "L"        -- (L)oot HIstory
-		    fillTableColumn()     
-            statusText("Filter and review loot history ")
+            lootHistory:Open()
 	    end)
     thisAddon.filterColumn:AddChild(showLootHistory)
 
@@ -905,8 +949,8 @@ function buildFilterColumnBottom()
 
     -- Loop through the 4 armour types resetting them to match the filters and default armour types
     for counter,filterSetting in pairs(addon.PLdb.global.filterArmourType) do
-	    if filterSetting == theType then      -- found my default type
-            thisAddon.filters.currentFilter[counter]=filterSetting
+	    if filterSetting[1] == theType then      -- found my default type
+            thisAddon.filters.currentFilter[counter]=filterSetting[1]
             thisAddon.checkboxList[counter]:SetValue(true)
         else
             thisAddon.filters.currentFilter[counter]="-"
@@ -918,6 +962,7 @@ end
 
 function buildTableColumn()
     local headerLabels = {}
+
     --                              width of the MainFrame           -       width of filter frame              - spacer - AceWow shit
     local tableColumnWidth = addon.PLdb.profile.setFrameWidth - addon.PLdb.profile.setFilterWidth - 20 - 40
 
@@ -966,6 +1011,8 @@ function playerPriorityHeadings()
     local widthOfCharacter = 5.6                                -- assuming Courier 12 point
     local lastOverhang1 = addon.PLdb.profile.GUI.nameLeftMarginTop  --  True up some initial indent ot make thigns line up
     local lastOverhang2 = addon.PLdb.profile.GUI.nameLeftMarginBottom                                    -- Allow for the column of item icons for the second header row
+
+    playerPriorityButtons()
 
     -- Create a custom font object
     -- local courierFont = CreateFont("Courier12")                 -- use a font that has a fixed width
@@ -1095,6 +1142,103 @@ function enterPriorityHeadings()
     
 end                     -- change the headings to the headings when you enter priorities
 
+function playerPriorityButtons()
+	local buttonRow = AceGUI:Create("SimpleGroup")
+    buttonRow:SetFullWidth(true)
+    buttonRow:SetLayout("Flow")
+
+    local scrollLeft = AceGUI:Create("Button")
+    local scrollRight = AceGUI:Create("Button")
+
+    scrollLeft:SetText("<< Scroll")
+    scrollLeft:SetWidth(100)
+    if playerStartPosition <= 1 then 
+	    scrollLeft:SetDisabled(true)
+    else
+		scrollLeft:SetDisabled(false)
+	end
+	scrollLeft:SetCallback("OnClick", function()
+            playerStartPosition = playerStartPosition - 5
+            playerEndPosition = playerEndPosition - 5
+            fillTableColumn()
+            statusText("Scrolled Left 5 players ")
+	    end)
+    buttonRow:AddChild(scrollLeft)
+
+    local spacerA = AceGUI:Create("Label")
+    spacerA:SetText(" ")
+    spacerA:SetWidth(10)
+    buttonRow:AddChild(spacerA)
+
+    local filterLabel = AceGUI:Create("Label")
+    filterLabel:SetText("Include only people who have my:")
+    filterLabel:SetWidth(100)
+    buttonRow:AddChild(filterLabel)
+
+
+    local tierGroup = AceGUI:Create("CheckBox")
+    tierGroup:SetLabel("Tier Token")
+    tierGroup:SetWidth(100)
+    tierGroup:SetValue(thisAddon.filters.myTierOnly)
+    tierGroup:SetCallback("OnValueChanged", function(widget, event, selected) 
+            if selected then 
+                thisAddon.filters.myTierOnly = true
+			else
+			    thisAddon.filters.myTierOnly = false
+			end
+            -- util.Print(tostring(thisAddon.filters.myTierOnly).."My Tier Only state")
+        
+            updateRosterToGuild()
+            fillTableColumn()
+            end)
+    buttonRow:AddChild(tierGroup)
+
+    local armourType = AceGUI:Create("CheckBox")
+    armourType:SetLabel("Armour type")
+    armourType:SetWidth(120)
+    armourType:SetValue(thisAddon.filters.myArmourOnly)
+    armourType:SetCallback("OnValueChanged", function(widget, event, selected) 
+            if selected then 
+                thisAddon.filters.myArmourOnly = true
+			else
+			    thisAddon.filters.myArmourOnly = false
+			end
+            updateRosterToGuild()
+	        fillTableColumn()        
+	        end)
+    buttonRow:AddChild(armourType)
+
+    local classType = AceGUI:Create("CheckBox")
+    classType:SetLabel("Class")
+    classType:SetWidth(80)
+    classType:SetValue(thisAddon.filters.myClassOnly)
+    classType:SetCallback("OnValueChanged", function(widget, event, selected) 
+            if selected then 
+                thisAddon.filters.myClassOnly = true
+			else
+			    thisAddon.filters.myClassOnly = false
+			end
+            updateRosterToGuild()
+            fillTableColumn()
+	        end)
+    buttonRow:AddChild(classType)
+  
+    scrollRight:SetText("Scroll >>")
+    scrollRight:SetWidth(100)
+    scrollRight:SetCallback("OnClick", function()
+            playerStartPosition = playerStartPosition + 5
+            playerEndPosition = playerEndPosition + 5
+            fillTableColumn()
+            if endOfPlayers then
+			     scrollRight:SetDisabled(true)
+		    end
+            statusText("Scrolled right 5 players ")
+	    end)
+    buttonRow:AddChild(scrollRight)
+  
+    thisAddon.headingContainer:AddChild(buttonRow)  
+end                      -- Add any buttons required when entering priorities
+
 function enterPriorityButtons()
 	local buttonRow = AceGUI:Create("SimpleGroup")
     buttonRow:SetFullWidth(true)
@@ -1102,7 +1246,7 @@ function enterPriorityButtons()
 
     local clearPriority = AceGUI:Create("Button")
     clearPriority:SetText("Clear Priorities")
-    clearPriority:SetWidth(200)
+    clearPriority:SetWidth(150)
     clearPriority:SetCallback("OnClick", function()
             clearPriorities()
             fillTableColumn() 
@@ -1111,12 +1255,33 @@ function enterPriorityButtons()
     buttonRow:AddChild(clearPriority)
 
    local clearPriority = AceGUI:Create("Button")
-    clearPriority:SetText("Import Raidbots")
-    clearPriority:SetWidth(200)
+    clearPriority:SetText("Compress Priorities")
+    clearPriority:SetWidth(150)
     clearPriority:SetCallback("OnClick", function()
-            statusText("This function is not implemented yet ")
-	    end)
+            -- remove duplicates and spaces in the  numerical list.  e.g. 1,4,4,5 becomes 1,2,3,4
+	        thisAddon.playerSelections[1].playerLoot = util.compressSequence(thisAddon.playerSelections[1].playerLoot,2)
+            fillTableColumn() 
+            statusText("Duplicates removed and spaces filled in your priorities.")
+	        end)
     buttonRow:AddChild(clearPriority)
+
+    local totalUsed = #addon.PLdb.char.playerSelections[1].playerLoot
+    local totalAvilable = addon.PLdb.char.numberOfPriorities
+    local usedPriority = AceGUI:Create("InteractiveLabel")
+    usedPriority:SetText(format("You have used: %i or %i priorities", totalUsed,totalAvilable))
+    usedPriority:SetWidth(150)
+    usedPriority:SetCallback("OnEnter", function()
+            local usedPriorities = util.extractfield(addon.PLdb.char.playerSelections[1].playerLoot,2,false)
+            usedPriority:SetText("Used: "..usedPriorities)
+	        end)
+    usedPriority:SetCallback("OnLeave", function()
+            local totalUsed = #addon.PLdb.char.playerSelections[1].playerLoot
+            local totalAvilable = addon.PLdb.char.numberOfPriorities
+            usedPriority:SetText(format("You have used: %i or %i priorities", totalUsed,totalAvilable))
+	    end)
+    buttonRow:AddChild(usedPriority)
+
+
 
     thisAddon.headingContainer:AddChild(buttonRow)  
 end                      -- Add any buttons required when entering priorities
@@ -1269,32 +1434,39 @@ local counter = 0
         -- util.AddDebugData(player,"Player details for priorities")
 
 	    -- Find the record that belongs to the current player if any in the stored priorities
-		playerNumber = getPlayerInformation(player.unitName,0,"PP")
+
+        -- util.AddDebugData(util.getShortName(player.unitName),"Looking for short name in roster")
+
+		if isPlayerInRoster(player.unitName) then -- Part of the displayed roster ?
+
+		    playerNumber = getPlayerInformation(player.unitName,0,"PP")
 		
-		-- Keep tracking the number of the player we are working on
-        counter = counter + 1
+		    -- Keep tracking the number of the player we are working on
+            counter = counter + 1
 
-        -- Set the default to zero meaning no data
-		returnRow[counter] = 0
+            -- Set the default to zero meaning no data
+		    returnRow[counter] = 0
 			
-        -- If a player was found then get the priority they chose
-        if playerNumber > 0 then
-            returnRow[counter] = getPlayerInformation(player.unitName,itemId,"P")
+            -- If a player was found then get the priority they chose
+            if playerNumber > 0 then
+                returnRow[counter] = getPlayerInformation(player.unitName,itemId,"P")
 
-            --if playerNumber == 1 then
-            --    util.AddDebugData(returnRow,"getRanksByPlayer: return")
-            --end
-            if returnRow[counter] < 0  then  -- if an error was returned
-			    returnRow[counter] = 0
-			end
-            -- if I have a rank but I have also used it convert it to a negative rank for display only
-            if returnRow[counter] > 0 then
+                --if playerNumber == 1 then
+                --    util.AddDebugData(returnRow,"getRanksByPlayer: return")
+                --end
+                if returnRow[counter] == nil then returnRow[counter] = 0 end
+                if returnRow[counter] < 0  then  -- if an error was returned
+			        returnRow[counter] = 0
+			    end
+                -- if I have a rank but I have also used it convert it to a negative rank for display only
+                if returnRow[counter] > 0 then
 
-				    local priorityHistory = getPlayerInformation(player.unitName,"","PH")
-                    if  util.hasValue(priorityHistory,returnRow[counter]) then
-                        returnRow[counter] = returnRow[counter] * (-1)
-                    end
-			end
+				        local priorityHistory = getPlayerInformation(player.unitName,"","PH")
+                        if  util.hasValue(priorityHistory,returnRow[counter]) then
+                            returnRow[counter] = returnRow[counter] * (-1)
+                        end
+			    end
+		    end
 		end
     end
 
@@ -1422,18 +1594,6 @@ function enterMyPriorities(theScrollContainer, myPriority, itemID,itemName)   --
 	    icon:SetSize(32, 32)
         icon:SetPoint("LEFT")
         
-        -- Add the item details and field to enter my Priority  << STILL WRITING THIS
-        -- USEFULL INFO
-        
-        -- GetItemInfo
-		-- Returns:  "itemName", "itemLink", itemRarity, itemLevel, itemMinLevel, "itemType", "itemSubType", itemStackCount, "itemEquipLoc", "invTexture", "itemSellPrice"
-        
-	    -- GetItemInfoInstant - https://warcraft.wiki.gg/wiki/API_C_Item.GetItemInfoInstant
-        -- Returns: itemID, itemType, itemSubType, itemEquipLoc, icon, classID, subClassID
-
-	    -- C_ItemUpgrade.GetItemUpgradeItemInfo (https://warcraft.wiki.gg/wiki/API_C_ItemUpgrade.GetItemUpgradeItemInfo)
-        -- 
-
         _ , itemType, itemSubType, itemEquipLoc, _, classID, subClassID = GetItemInfoInstant(itemID)
         -- util.AddDebugData(itemType,"enterMyPriorities: GetITemInfo "..itemName)
 
@@ -1441,7 +1601,6 @@ function enterMyPriorities(theScrollContainer, myPriority, itemID,itemName)   --
         local padding = AceGUI:Create("Label")
         padding:SetWidth(50)    
 	    padding:SetHeight(32)
-        -- padding:SetPoint("LEFT")
         row:AddChild(padding)
 
         local theEquipLoc = AceGUI:Create("Label")
@@ -1462,6 +1621,7 @@ function enterMyPriorities(theScrollContainer, myPriority, itemID,itemName)   --
         local myPriority = AceGUI:Create("EditBox")
         myPriority:SetWidth(75)
         local theNewPriority = getPlayerInformation(thePlayer,itemID,"P")
+        if theNewPriority == nil then theNewPriority = 0 end
         if tonumber(theNewPriority) > 0 then
             myPriority:SetText(tonumber(theNewPriority))
             if util.hasValue(getPlayerInformation(thePlayer,0,"PH"),theNewPriority) then
@@ -1477,15 +1637,17 @@ function enterMyPriorities(theScrollContainer, myPriority, itemID,itemName)   --
                 theEntry = math.floor(theEntry)
                 myPriority:SetText(theEntry)
 
-                local updateMade,updateFrame =  updatePlayerItemPriority(thePlayer,itemID,tonumber(myPriority:GetText())) 
-
-			    if updateMade then
-                    -- I know I am always player 1 
+                local recUpdated,duplicatePriority,updateFrame =  updatePlayerItemPriority(thePlayer,itemID,tonumber(myPriority:GetText())) 
+                
+			    if recUpdated then
                     addon.PLdb.char.playerSelections[1].version = addon.PLdb.char.playerSelections[1].version +1
-                    statusText(format("%s: Priority for %s has been set",util.Colorize("UPDATED:", "accent",false),itemName))
-                else
-                    statusText(format("%s: Priority for %s has NOT been set.  Check chat for warning or errors.",util.Colorize("UPDATED:", "accent",false),itemName))
-				end
+                end
+
+                local textmsg = ""
+                if recUpdated then textmsg = format("%s: Priority for %s set",util.Colorize("UPDATED:", "accent",false),itemName) end  
+				if duplicatePriority then textmsg = textmsg..util.Colorize(" WARNING: Duplicate priority found.", "accent",false) end  
+                statusText(textmsg)
+
                 if updateFrame then -- refresh the view
                     fillTableColumn()
 				end
@@ -1557,28 +1719,48 @@ function getListOfHeadingsToDisplay()
 end                      -- Getthe correct heading list to put ion the table frame
 
 function itemFilteredIn(itemID)
-    -- itemEquipLocation is what slot
-    -- iitemClassID is temArmourSubClass e.g.  Cloth 1, Leather	2, Mail 3,Plate	4, Others   5-11
-    -- itemID, itemType, itemSubType, itemEquipLoc, icon, classID, subclassID
-    --
-    -- Get the item details for the type of item it is sword, mail, etc
-    -- get the current setting (filterWord)
-    -- check the type (cloth etc) and the class (sword etc) and see if they match the filter
-    --
+--[[------------------------------------ FILTER SETUP AND MANAGEMENT ---------------------------------
+    itemEquipLocation is what slot
+    itemID, itemType, itemSubType, itemEquipLoc, icon, classID, subclassID
+    itemClassID is ArmourSubClass e.g.  Cloth 1, Leather	2, Mail 3,Plate	4, Others   5-11
+
+    A = Cloth   B = leather     C = Mail        D = Plate	
+
+    Equipment Type for filterColumnElements
+	ID="E" is "Armour"                ID="F" is "Trinkets"
+	ID="G" is "Jewelery"              ID="H" is "Weapons (1H)"
+    ID="I" is "Weapons (2H)"          ID="J" is "Offhand"
+    ID="K" is "Ranged"              
+
+    ID="L" is Tier Tokens
+    -- itemID 228803-228806
+
+
+    Get the item details for the type of item it is sword, mail, etc
+    get the current setting (filterWord)
+    check the type (cloth etc) and the class (sword etc) and see if they match the filter
+--]]
+
+    --   local debugItemTable = {
+    --                   {"Item",itemID},
+    --                   {"ClassID",itemClassId},
+    --                   {"SubClassID",subclassID},
+	--}
+    --   util.AddDebugData(debugItemTable,"Filter In Item details")
+
 
     local _, _, _, itemEquipLoc, _, itemClassId, subclassID = GetItemInfoInstant(itemID)
     local itemArmourTypeToFind = "#"
     local itemLocationToFind = "#"
 
-    -- util.AddDebugData(itemID.."  "..itemEquipLoc.."  "..itemClassId.." "..subclassID,"Item details")
     -- what slot does it go into - get the letter that we search for
     itemLocationToFind = getItemSubType(itemEquipLoc,"Code")
 
     -- If its Armour then is it cloth, leather etc - get the correct letter to search for
   	if itemClassId==4 and subclassID>0 and subclassID<5 then
-        itemArmourTypeToFind = addon.PLdb.global.filterArmourType[subclassID]
+        itemArmourTypeToFind = addon.PLdb.global.filterArmourType[subclassID][1]
 	end
-    
+
     local filterWord = convertFiltertoWord(thisAddon.filters.currentFilter)
     -- util.AddDebugData(itemID,"Filter word "..filterWord)
     local startIndexL, endIndexL = string.find(filterWord, itemLocationToFind)
@@ -1593,6 +1775,16 @@ function itemFilteredIn(itemID)
         -- This item does not meet the class or subclass constraints so reject it
 	    return false
 	else
+        
+        -- If its a Tier Token and its NOT my tier token then
+       -- util.AddDebugData(itemLocationToFind,"Location of item")
+       -- util.AddDebugData(getMyTierToken(addon.PLdb.char.myClassID),"Token table")
+		
+        if itemLocationToFind == "L" and not util.hasValue(getMyTierToken(addon.PLdb.char.myClassID),itemID) then
+            util.AddDebugData(itemID,"Not my Tier Token")
+	        return false
+	    end
+
         -- Now we have a matching item start to apply other filter elements
         if thisAddon.filters.onlyMyPriority then
             -- util.AddDebugData(itemID,"only my priority")
@@ -1627,6 +1819,22 @@ function convertFiltertoWord(theFilter)
 end
 
 ------------- VISUAL SUPPORT FUNCTIONS ----------------------------------
+function addon:updateLootRollStatus(theFlag)
+
+    util.AddDebugData(theFlag,"Change loot roll status")
+    thisAddon.priorityLootRollsActive = theFlag
+	addon:buildPL_ROLL_CHECK("All")
+
+    if not thisAddon.priorityLootRollsActive then
+        broker.icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\logo"
+        util.AddDebugData(thisAddon.priorityLootRollsActive,"Loot rolls not active")
+    else
+        broker.icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\green_logo"
+        util.AddDebugData(thisAddon.priorityLootRollsActive,"Loot rolls active")
+	end
+
+	addon:eventSetup("LootRoll")
+end
 
 function addon:ToggleOptions()
 	

@@ -2,7 +2,7 @@
 ## Version: 1.0
 ## Author: grayt
 ## Interface: 80205
-## SavedVariables: PriorityLootDb
+## SavedVariables: PriorityLootDb, lootHistoryDB
 ## XDate: 
 ## XRevision: 
 
@@ -11,6 +11,7 @@ embeds.xml
 modules/core.lua
 modules/messaging.lua
 modules/lootRolls.lua
+modules/lootHistory.lua
 modules/options.lua
 modules/support.lua
 modules/utils.lua

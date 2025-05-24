@@ -30,15 +30,17 @@ local LibEncoder = LibCompress:GetAddonEncodeTable()
 		
         PL_CONFIG_UPDATE:Update the config file
 		
-		PL_ROLL_CHECK:   Is Priority Loot rolls actiove or not.  Check and or activate 
+		PL_ROLL_CHECK:   Is Priority Loot rolls active or not.  Check and or activate.     Also used to turn it on for everyone
 		
-		PL_ADDON_ACTIVE: The LootManager turning on or off the Priority Looting
+		PL_ADDON_ACTIVE: NOT USED
 
     ]]--
 
 
 function mySendMessage(theEvent,theMessageIn,theTarget)
 
+    if addon.PLdb.char.testMode then return end
+	
     local theMessageInText = ""      -- incase its a table
     theMessageInText = theMessageIn
 
@@ -221,7 +223,7 @@ function addon:buildPL_CONFIG_CHECK(messageTo)
 		
 		-- the loot manager in online .
 	    -- and I have not checked in the last 24 hours ?
-        if not iAmTheLootManager and IsPlayerOnline(addon.PLdb.char.guildLootManager) and
+        if not iAmTheLootManager and isPlayerOnline(addon.PLdb.char.guildLootManager) and
            addon.PLdb.char.lastConfigCheck < C_DateAndTime.GetServerTimeLocal() - 86400 then    -- 86400 is how many seconds are in 24 hours
 		        sendMessage("PL_CONFIG_CHECK",addon.PLdb.char.configVersion,messageTo)
         end
@@ -238,7 +240,7 @@ function addon:inPL_CONFIG_UPDATE(theEvent,theMessageIn,_,messageFrom)
     -- I get a message but the lootmanager is not online
     -- or I get a message and its not from the lootmanager then
 
-    if iAmTheLootManager or not IsPlayerOnline(addon.PLdb.char.guildLootManager) or
+    if iAmTheLootManager or not isPlayerOnline(addon.PLdb.char.guildLootManager) or
         messageFrom ~= addon.PLdb.char.guildLootManager then return end
 
     local theMessage = addon:processMessage(theMessageIn)
@@ -288,41 +290,26 @@ function addon:inPL_ROLL_CHECK(theEvent,theMessageIn,_,messageFrom)
 
     local rollState = toBoolean(addon:processMessage(theMessageIn))
 
-    if iAmTheLootManager then
+    if iAmTheLootManager and isPlayerInRaid(addon.PLdb.char.guildLootManager) then
 	    if rollState ~= thisAddon.priorityLootRollsActive then
 	        addon:buildPL_ROLL_CHECK(messageFrom)
 	    end
 	else
         -- If I am in the same raid as the LootManager
-        if isPlayerInRaid(addon.PLdb.char.nameLootManager) then
-	        thisAddon.priorityLootRollsActive = rollState 
+        if isPlayerInRaid(addon.PLdb.char.nameLootManager) and massageFrom == addon.PLdb.char.guildLootManager then
+	        -- thisAddon.priorityLootRollsActive = rollState 
+            addon:updateLootRollStatus(rollState)
 		end
 	end
 end
 
 function addon:buildPL_ROLL_CHECK(theTarget)
     
-    sendMessage("PL_ROLL_CHECK",thisAddon.priorityLootRollsActive,theTarget)
+    mySendMessage("PL_ROLL_CHECK",thisAddon.priorityLootRollsActive,theTarget)
     util.AddDebugData(true,"PL_ROLL_CHECK sent")
 
 end
 
-
-function addon:inPL_ADDON_ACTIVE(theFlag)
-
-    if thisAddon.priorityLootRollsActive then
-        thisAddon.priorityLootRollsActive = false
-        broker.icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\logo"
-        util.AddDebugData(thisAddon.priorityLootRollsActive,"Loot rolls not active")
-    else
-        thisAddon.priorityLootRollsActive = true
-        broker.icon = "Interface\\AddOns\\PriorityLoot\\Media\\Textures\\green_logo"
-        util.AddDebugData(thisAddon.priorityLootRollsActive,"Loot rolls active")
-	end
-
-	addon:eventSetup("LootRoll")
-    
-end
 
 
 

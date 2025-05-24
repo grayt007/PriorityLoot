@@ -53,6 +53,9 @@ function util.deepcopy(object)
 end
 
 function util.hasValue(t, value)
+-- Does the value exist in the table    
+    if t == nil then return false end
+
     for _, v in ipairs(t) do
         if v == value then return true end
     end
@@ -63,6 +66,7 @@ function util.hasValue(t, value)
 end
 
 function util.keys(t)
+-- geta  list of key values in the table
     local temp_t = {}
     for k,_ in pairs(t) do tinsert(temp_t, k) end
     return temp_t
@@ -98,6 +102,41 @@ function util.inverted(t)
     return temp_t
 end
 
+function util.compressSequence(tbl, field)
+-- removes nil values, gaps and dupllicates to create a numerical sequence in the designated field
+
+    -- util.AddDebugData(tbl,"PRE compress data")
+
+    local newIndex = 1
+    local newTable = {}
+
+    if #tbl == 0 then return nil end -- Return nil if the table is empty
+
+    for idx,row in ipairs(tbl) do
+        if row[field] ~= nil then
+            table.insert(newTable,row)
+        end
+	end
+
+    util.AddDebugData(newTable,"new data")
+    tbl = newTable
+
+    table.sort(tbl, function(a, b) return a[field] < b[field] end)
+    local lowest = tbl[1][field] -- Start with the first number
+
+     -- Assign sequential numbers while preserving existing values when possible
+    for idx,entry in ipairs(tbl) do
+        if idx > 1 then
+		    lowest = lowest + 1
+            entry[field] = lowest
+        end
+    end
+
+    -- util.AddDebugData(tbl,"PRE compress data")
+
+    return tbl
+end
+
 function util.tableToString(theTable)
     local result = "{"
     for k, v in pairs(theTable) do
@@ -119,23 +158,35 @@ function util.stringToTable(theString)
     return func()
 end
 
-function util.extractfield(theTable,theField,flag)
--- extract one field from a table and convert it to a table or to text
+function util.extractfield(theTable,theField,theFlag)
+-- extract all entries of one field from a table and convert it to a table or to text
 -- true means a table false mean text
 
     local tableResult = {}
 	local textResult = ""
 
-    for i, record in ipairs(theTable) do
-        if record[theField] then
+    if next(theTable) == nil then
+		if theFlag then
+            return {}
+        else
+            return ""
+		end
+    end
+
+    -- util.AddDebugData(theTable," table")
+
+    for _, theRecord in ipairs(theTable) do
+        -- util.AddDebugData(theRecord[theField],"Find field in table")
+        if theRecord[theField] then
             if theFlag then
-                table.insert(tableResult, record[fieldName])
+                table.insert(tableResult, theRecord[theField])
 			else
-			    textResult = textResult..textResult..","
+			    textResult = textResult..theRecord[theField]..","
 			end
         end
     end
-	
+	-- util.AddDebugData(textResult,"extract field")
+
     if not theFlag then
 		textResult = textResult:sub(1, -2)
         return textResult
@@ -189,15 +240,7 @@ function util.Colorize(text, color , theFlag)
     return "|c" .. hexColor .. text .. "|r"
 end
 
-function util.findItemSubType(theSubType)
-    util.AddDebugData(theSubType,"Passed in")
-	
-    tbl = addon.PLdb.profile.LootItemSubType
-    for _,row in ipairs(tbl) do
-        if row[1] == theSubType then return row[2] end
-	end
-    return "NONE"
-end
+
 
 
 

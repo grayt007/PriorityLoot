@@ -18,7 +18,7 @@ function addon:joinedRaid()
         loadRaidMembers()
 
         if iAmTheLootManager and not thisAddon.priorityLootRollsActive then
-		    addon:yesnoBox("Do you wish to swap the Priority Loot allocations state for this raid ?","activateLootRolls")
+		    addon:dialogBox("ROLLSTATUS","Do you wish to turn on the Priority Loot allocations for this raid ?","activateLootRolls")
 		end
 
 	    if not thisAddon.priorityLootRollsActive and isPlayerInRaid(addon.PLdb.char.guildLootManager) then
@@ -35,73 +35,66 @@ function addon:leftRaid()
     thisAddon.priorityLootRollsActive = false
 end
 
+
 --- update data 
 
 function updatePlayerItemPriority(thePlayer,theItem,thePriority)
 -- If its a new priority then add it
--- encrypt the priorities history data when its stored
+-- outputs was their a change, do we need to refresh the window
+
 
     local recToUpdate = 0
     local itemToUpdate = getPlayerInformation(thePlayer,theItem,"PP") 
     local numberOfPriorities = addon.PLdb.char.numberOfPriorities  --  The number of priorities I am allowed to have active
-    local recUpdated,duplicatePriority,refreshFrame = false
+    local recUpdated,duplicatePriority,itemFound, refreshFrame = false
 
     if thePlayer == 1 then
         recToUpdate = 1
     else
-         recToUpdate = getPlayerInformation(thePlayer,"","PP")  
+         recToUpdate = getPlayerInformation(thePlayer,"","PP")  -- Allow for special LM function to do an update To be complted
 	end
 
     local priorityHistory = getPlayerInformation(thePlayer,"","PH")  
-
-    if util.hasValue(priorityHistory,thePriority) then -- If the number is blocked then
-        util.Print(   format("%s: Priority %i is blocked and will not be used or updated",util.Colorize("WARNING:", "accent",false),thePriority))
-	    statusText(format("%s: Priority %i is blocked and will not be used or updated",util.Colorize("WARNING:", "accent",false),thePriority))
-        return false
+    if priorityHistory then
+        if util.hasValue(priorityHistory,thePriority) then -- If the number is blocked then
+            util.Print(   format("%s: Priority %i is blocked and will not be used or updated",util.Colorize("WARNING:", "accent",false),thePriority))
+	        statusText(format("%s: Priority %i is blocked and will not be used or updated",util.Colorize("WARNING:", "accent",false),thePriority))
+            return false,false,false
+	    end
 	end
 	
     -- make the priority change for that item
-    for counter,itemLoot in ipairs(thisAddon.playerSelections[recToUpdate].playerLoot) do
-	
-        if itemLoot[2] == thePriority then
+    -- if the priority is 0 delete the record
+    -- if the priority does not exist insert the record
+
+    for idx,itemLoot in ipairs(thisAddon.playerSelections[recToUpdate].playerLoot) do
+        -- If you find the priority mark it as a duplicate
+	    if itemLoot[2] == thePriority then
 		    duplicatePriority = true
-            util.AddDebugData(true,"Duplicate found")
 		end
 
         if itemLoot[1] == theItem then
-      
+            itemFound = true
             if thePriority == 0  then
-                table.remove(thisAddon.playerSelections[recToUpdate].playerLoot, counter)
+                table.remove(thisAddon.playerSelections[recToUpdate].playerLoot, idx)
                 refreshFrame = true
-                return true,refreshFrame -- delete the record but leave other change to the user
+                recUpdated = true
+                return recUpdated,duplicatePriority,refreshFrame
             end
 
-            -- if the item priority did not change then dont update it and dont update the version
-            if thisAddon.playerSelections[recToUpdate].playerLoot[counter][2] ~= thePriority then
-		        thisAddon.playerSelections[recToUpdate].playerLoot[counter][2] = thePriority
-                recUpdated = true -- we changed the item so now lets see what other things are required.
-			else
-                return false,refreshFrame -- no change required so do nothing more
+            if thisAddon.playerSelections[recToUpdate].playerLoot[idx][2] ~= thePriority then
+		        thisAddon.playerSelections[recToUpdate].playerLoot[idx][2] = thePriority
+                recUpdated = true
+                return recUpdated,duplicatePriority,refreshFrame
 			end
         end
 	end
 	
-    -- if a duplicate was entered go through the loop and move all the other prioties after what we entered up one 
-    if duplicatePriority and recUpdated then
-        util.AddDebugData(true,"Duplicate found and a record was updated")
-	    -- we need top start the loop again because we dont know what order the items are in
-        for counter,itemLoot in ipairs(thisAddon.playerSelections[recToUpdate].playerLoot) do
-            if itemLoot[2] >= thePriority and itemLoot[1] ~= theItem then
-                util.AddDebugData(true,"moving a priority")
-		        thisAddon.playerSelections[recToUpdate].playerLoot[counter][2] = itemLoot[2] + 1
-		    end
-		end
-        refreshFrame = true
-	end
-
-	-- if it does not already exist then insert it because we have already made a space
-    table.insert(thisAddon.playerSelections[recToUpdate].playerLoot, {theItem,thePriority})
-    return true,refreshFrame
+    if not itemFound then
+        table.insert(thisAddon.playerSelections[recToUpdate].playerLoot,{theItem,thePriority})
+        recUpdated = true
+    end
+    return recUpdated,duplicatePriority,refreshFrame
 end
 
 function updateGuildRecord(unitNameIn,hasAddonIn,configVersionIn)
@@ -130,8 +123,6 @@ function clearPriorities()
     util.AddDebugData(priorityHistory,"priorityHistory")
 
     while i < #thisAddon.playerSelections[1].playerLoot do
-        --util.AddDebugData(i,"counter")
-        --util.AddDebugData(thisAddon.playerSelections[1].playerLoot[i],"thisAddon.playerSelections[1].playerLoot[i]")
 	    if not util.hasValue(priorityHistory,thisAddon.playerSelections[1].playerLoot[i][2]) then -- If the number is not blocked then
             table.remove(thisAddon.playerSelections[1].playerLoot, i)
         else
@@ -157,75 +148,30 @@ function isPlayerInRaid(thePlayer)
 end
 
 function isPlayerOnline(thePlayer)
-    
-end -- TO BE COMPLTED
 
-function addon:getGuildDetails()
-    
-    if IsPlayerInGuild() then
+    for idx,guildMember in ipairs(thisAddon.guildUnit) do
 
-        finishedInitalising = true 
-
-        addon.PLdb.char.myGuildName, _ , _ , addon.PLdb.char.myGuildRealm = GetGuildInfo("player")
-    
-        if addon.PLdb.char.myGuildRealm == nil then
-            addon.PLdb.char.myGuildRealm = GetRealmName()
-        end
-
-        util.AddDebugData(addon.PLdb.char.myGuildName,"Guild found ")
-
-        loadGuildMembers()
-        fillTableColumn()
-
-    else
-        util.AddDebugData(true,"No guild found ")
-        addon.PLdb.char.myGuildName = "ERROR:  NO guild found "
+        if thePlayer == guildMember.unitName then
+            if guildMember.online then 
+                return true
+            end
+		end
     end
-end
+    return false
+		
+end 
 
-function getElementsFromRaids(whatToReturn,searchValue1,searchValue2) -- pass in"raid","boss" and a search value
--- "raid"            searchValue1={},searchValue2={}                     -- NOT USED
--- "bossList"        searchValue1={},searchValue2={}                     -- Get the list of bosses
--- "bossId"          searchValue1={position},searchValue2={}             -- Get the bossID if you know what boss it is e.g. the second boss
--- "bossname"        searchValue1={provide the bossId},searchValue2={}   -- Get the name based on the id
+function isPlayerInRoster(thePlayer)
+    local theName = util.getShortName(thePlayer)
 
-    local returnArray = {}
-    lootTable = addon.PLdb.global.bossLoot
-
-    if whatToReturn == "raid" then                     
-        return false
-
-    elseif whatToReturn == "bosslist" then     
-        table.insert(returnArray, "All")
-        for _, bossList in pairs(lootTable) do
-            table.insert(returnArray, bossList.bossName)
-            -- util.AddDebugData("Added Boss to dropdown", bossList.bossName)
-		end
-        return returnArray
+    for _,playerRec in ipairs(thisAddon.roster) do
 	
-    elseif whatToReturn == "bossId" then   
-        if searchValue1 == 1 then -- If "All" bosses was selected then ignore this
-		    return searchValue1
-		else
-            -- Add one place to the boss ID becuase the first item in the lookup is "All"
-            util.AddDebugData(lootTable[searchValue1-1].bossId, "Find BossID from position ")
-            return lootTable[searchValue1-1].bossId
+        if playerRec.unitName == theName then
+            return true
         end
-
-    elseif whatToReturn == "bossname" then                
-        for _, bossList in pairs(lootTable) do
-			if bossList.bossName == searchValue1 then
-				return bossList.bossId
-			end
-		end
-		util.AddDebugData("function: getElementsFromRaids", searchValue2.." bossID not found in raid "..searchValue1)
-
-    else 
-		util.AddDebugData("function: getElementsFromRaids", whatToReturn.." was not a suitable parameter")
 	end
-
-    return returnArray
-end                            -- Parse the raids data to return requested tables and data
+    return false
+end
 
 function checkIExist()                              
     local myName = util.unitname("player")
@@ -247,8 +193,8 @@ function checkIExist()
 		{
         player = myName,
         version = 1,
-        playerLoot = {
-            },
+        priorityHistory = {},
+        playerLoot = {},
         }
 
     -- util.AddDebugData(myName,"Adding character Name")
@@ -259,17 +205,55 @@ function checkIExist()
     util.Print(format("Character %s added to playSelections data", util.Colorize(myName, "accent",false)))
 
     -- Set the default to my armour type
-    local myClassName,myClass=UnitClassBase("player")
+    local myClassID,myClassID=UnitClassBase("player")
 
-    for _,armourType in pairs(addon.PLdb.char.classArmour) do
-        if myClass == armourType.class then
-            addon.PLdb.char.myClassName = myClassName
-            addon.PLdb.char.myArmourType = armourType.armour
-            util.AddDebugData(armourType.armour," Armour type set for "..myClassName)
-        end
-    end
+    util.AddDebugData(myClassID,"Looking for my class name")
+    util.AddDebugData(myClassID,"Looking for my class ID")
+
+    --for _,armourType in pairs(addon.PLdb.global.classArmour) do
+    --    if myClassID == armourType.class then
+            addon.PLdb.char.myClassID = myClassID
+            addon.PLdb.char.myArmourType = addon.PLdb.global.classInfo[myClassID][3]       -- armourType.armour
+            addon.PLdb.char.myTierGroup = addon.PLdb.global.classInfo[myClassID][2]
+
+            util.AddDebugData(myClassID," Class type set to ")
+            util.AddDebugData(armourType.armour," Armour type set to ")
+            util.AddDebugData(addon.PLdb.char.myTierGroup," Tier Group set to ")
+			util.AddDebugData(addon.PLdb.global.tierGroupNames[addon.PLdb.char.myTierGroup],"Tier Group Name")
+    --    end
+    --end
 end                                     -- make sure my record exists and is current in teh playerSelections data
 
+function getMyTierToken(theClassID)
+     
+    util.AddDebugData(theClassID,"Looking up token for class")
+    local myTokenGroup = addon.PLdb.global.classInfo[theClassID][2]
+    util.AddDebugData(myTokenGroup,"found token group")
+    return addon.PLdb.global.tierTokenID[myTokenGroup].tokenIDTable
+
+--    local myClassType = theClass
+ --   for _,classTier in ipairs(addon.PLdb.global.classInfo) do
+ --       if string.upper(classTier[1]) == string.upper(myClassType) then      
+ --           myTierGroup = classTier[2]
+ --           return addon.PLdb.global.tierTokenID[myTierGroup].tokenIDTable
+ --       end
+	--end
+ --   util.AddDebugData(thePlayer,"ERROR: No Tier Token group[ found")
+	--return {0}
+end
+
+function getClassID(theClass)
+
+    for idx,classTier in ipairs(addon.PLdb.global.classInfo) do
+        if string.upper(classTier[1]) == string.upper(theClass) then      
+            return idx
+        end
+	end
+
+    util.AddDebugData(thePlayer,"ERROR: Class not found in getClassInfo")
+	return 0
+end
+	
 function getPlayerInformation(theName,theItemID,theFlag)     -- return details from the player priority date on the player and selected items
     local recordName,myNameIn = ""
 	local playerRollList = {}
@@ -387,6 +371,74 @@ function getGuildMember(theName)
     return false,{},0
 end
 
+function addon:getGuildDetails()
+    
+    if IsPlayerInGuild() then
+
+        finishedInitalising = true 
+
+        addon.PLdb.char.myGuildName, _ , _ , addon.PLdb.char.myGuildRealm = GetGuildInfo("player")
+    
+        if addon.PLdb.char.myGuildRealm == nil then
+            addon.PLdb.char.myGuildRealm = GetRealmName()
+        end
+
+        util.AddDebugData(addon.PLdb.char.myGuildName,"Guild found ")
+
+        loadGuildMembers()
+        fillTableColumn()
+
+    else
+        util.AddDebugData(true,"No guild found ")
+        addon.PLdb.char.myGuildName = "ERROR:  NO guild found "
+    end
+end
+
+function getElementsFromRaids(whatToReturn,searchValue1,searchValue2) -- pass in"raid","boss" and a search value
+-- "raid"            searchValue1={},searchValue2={}                     -- NOT USED
+-- "bossList"        searchValue1={},searchValue2={}                     -- Get the list of bosses
+-- "bossId"          searchValue1={position},searchValue2={}             -- Get the bossID if you know what boss it is e.g. the second boss
+-- "bossname"        searchValue1={provide the bossId},searchValue2={}   -- Get the name based on the id
+
+    local returnArray = {}
+    lootTable = addon.PLdb.global.bossLoot
+
+    if whatToReturn == "raid" then                     
+        return false
+
+    elseif whatToReturn == "bosslist" then     
+        table.insert(returnArray, "All")
+        for _, bossList in pairs(lootTable) do
+            table.insert(returnArray, bossList.bossName)
+            -- util.AddDebugData("Added Boss to dropdown", bossList.bossName)
+		end
+        return returnArray
+	
+    elseif whatToReturn == "bossId" then   
+        if searchValue1 == 1 then -- If "All" bosses was selected then ignore this
+		    return searchValue1
+		else
+            -- Add one place to the boss ID becuase the first item in the lookup is "All"
+            util.AddDebugData(lootTable[searchValue1-1].bossId, "Find BossID from position ")
+            return lootTable[searchValue1-1].bossId
+        end
+
+    elseif whatToReturn == "bossname" then                
+        for _, bossList in pairs(lootTable) do
+			if bossList.bossName == searchValue1 then
+				return bossList.bossId
+			end
+		end
+		util.AddDebugData("function: getElementsFromRaids", searchValue2.." bossID not found in raid "..searchValue1)
+
+    else 
+		util.AddDebugData("function: getElementsFromRaids", whatToReturn.." was not a suitable parameter")
+	end
+
+    return returnArray
+end                            -- Parse the raids data to return requested tables and data
+
+
 --- text functions
 
 function addon:trimText(text)
@@ -405,26 +457,45 @@ function statusText(theMessage)
     thisAddon.MainLootFrame:SetStatusText(theMessage)
 end
 
-function addon:yesnoBox(msg, callback)                          -- Yes No conformation window
-    -- https://wowpedia.fandom.com/wiki/Creating_simple_pop-up_dialog_boxes
+function addon:dialogBox(theType, msg, callback)                          -- Yes No conformation window
+    -- https://warcraft.wiki.gg/wiki/Creating_simple_pop-up_dialog_boxes
+    -- theType
+    -- ROLLSTATUS   - Turn Priority rolls on and off
+    -- YESNOBOX     - simple yes no with call to function
     
-    StaticPopupDialogs[MyAddOnName.."_YESNOBOX"] = {
+    StaticPopupDialogs[MyAddOnName.."_ROLLSTATUS"] = {
         text = msg,
-        button1 = "Yes",
-        button2 = "No",
-        OnButton1 = function(self, data, data2)
-            addon:activateLootRolls() -- callback()
+        button1 = "On",
+        button2 = "Off",
+        button3 = "Cancel",
+        OnAccept = function(self, data, data2)
+            addon:updateLootRollStatus(true)
         end,
-        --OnButton2 = function(self, data, data2)
-        --    addon:activateLootRolls(false) -- callback()
-        --end,
-        timeout = 0,
+        OnCancel = function(self, data, data2)
+            addon:updateLootRollStatus(false)
+        end,
+        timeout = 15,
         whileDead = true,
         hideOnEscape = true,
         preferredIndex = STATICPOPUP_NUMDIALOGS,
     }
 
-    StaticPopup_Show (MyAddOnName.."_YESNOBOX")
+    StaticPopupDialogs[MyAddOnName.."_YESNOBOX"] = {
+        text = msg,
+        button1 = "Yes",
+        button2 = "No",
+        OnAccept = function(self, data, data2)
+            addon:callback(True)
+        end,
+        timeout = 0,
+        whileDead = true,
+        hideOnEscape = true,
+        preferredIndex = STATICPOPUP_NUMDIALOGS,
+    }
+	
+    local showBox =  MyAddOnName.."_"..theType
+
+    StaticPopup_Show (showBox)
 end
 
 --- profile database functions

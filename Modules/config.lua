@@ -11,25 +11,29 @@ charConfig = {
     -------------------------- This is set and updated by the Loot Manager ------------------------
     ------------ position 1 = A,2=B,3=C,4=D, see bottom filter settings for armour class ----------
 	myArmourType = "D",           
-    myClassName = "Warrior",
+    myClassID = 1,
+    myTierGroup = 0,
+    myArmourType = 0,
     myGuildName = "Default",
     myGuildRealm = "Default",
-
-    -------------------------------------- PRIORITY LOOT SETTINGS ---------------------------------
-    -------------------------- This is set and updated by the Loot Manager ------------------------
-    configVersion = 1,
+    
     lastConfigCheck = 0,
     testMode = true,
+    officerList = {},
+    guildOtherRanks = {5,6}, 
+
+    -------------------------------------- PRIORITY LOOT SETTINGS ---------------------------------
+    ----- This is set and updated by the Loot Manager ------
+    configVersion = 1,
     guildLootManager = "Synergised-Nagrand",
     guildOfficerRanks = {0,1,2,"-","-","-","-","-","-","-","-"},
-    officerList = {},
-    guildRaidRanks = {0,1,"-","-",4,"-","-","-","-","-"},
-    guildOtherRanks = {5,6},        
+    guildRaidRanks = {0,1,2,3,4,5,6,"-","-","-"},
     numberOfPriorities = 12,
     refineSuicide = true,
     refineItemLevel = false,
     refineItemLevelRange = 0,
     refineGuildRank = true,
+    refineAlts = false,
     lockPrioritiesDuringRaid = false,
     includeWeapons = true,
     includeArmour = true,
@@ -41,45 +45,20 @@ charConfig = {
     --[[------------------------------------ GUILD MEMBER DATA ---------------------------------
             unitName = the character name
             unitRank = the guild rank
+            memberClass = class
+            armourType = their armour type
+            tierGroup = their tier token group
 	        hasAddon = the version
 	        configVersion = the version of the  configuration settings
             lastCheck = last time the configuration was checked
             online = are they online or offline
     ]]--
     guildMembers = {},      
-
     
-    -------------------------------------- Player Priorities ---------------------------------
+    --[[---------------------------------- Player Priorities ---------------------------------
+            enter player selection data format here
+    ]]--
     playerSelections = {
-        {
-		player = "Synergised-Nagrand",
-        version = 3,
-        priorityHistory = {1,3},
-        playerLoot =
-		    {
-            {"228861", 1},
-            {"228865", 2},
-            {"228875", 3},
-            {"228876", 4},
-            {"228852", 5},
-            {"228862", 6},
-            {"228858", 7},
-            {"228868", 8},
-            {"228839", 9},
-            {"228847", 10},
-
-  			},
-		},
-		{
-        player = "Hex-Nagrand",
-        version = 1,
-        priorityHistory = {2},
-		playerLoot =
-		    {
-            {"228846", 1},
-            {"228873", 2},
-			},
-        },
 	},
 
     hashPH = "",
@@ -116,6 +95,9 @@ profileConfig = {
 	    displayGuildNames = true,
         displayMeFirst = true,
         displayOnlyMyItems = false,
+        myClassOnly = false,
+        myTierOnly = false,
+        myArmourOnly = false,
         defaultRaid = 1273,
         defaultBoss = 2,	
         currentFilter = {"-","-","-","-","-","F","G","H","I","J","K","L"}, 
@@ -124,6 +106,8 @@ profileConfig = {
     GUI = {
         nameLeftMarginTop = -5,
         nameLeftMarginBottom = -30,
+        displayMaxPlayers = 15,
+        scrollPLayerNumber = 5,
         point = "CENTER",
 		xPos = 0,
 		yPos = 0,
@@ -159,6 +143,7 @@ globalConfig = {
         "refineItemLevel",
         "refineItemLevelRange",
         "refineGuildRank",
+        "refineAlts",
         "lockPrioritiesDuringRaid",
         "includeWeapons",
         "includeArmour",
@@ -328,13 +313,36 @@ globalConfig = {
     },
 },
     
+    -------------------------------------- TIER TOKEN GROUPS ---------------------------------
+    -- This table must be in class order e.g. warrior is class one so its first
+    -- table:  className, tierTokenGroup, armourType
+	classInfo = {
+	   {"WARRIOR",3,"D"},
+	   {"PALADIN",2,"D"},
+       {"HUNTER",1,"C"},
+	   {"ROGUE",3,"B"},
+	   {"PRIEST",2,"A"},
+	   {"DEATHKNIGHT",4,"D"},
+	   {"SHAMAN",2,"C"},
+	   {"MAGE",1,"A"},
+	   {"WARLOCK",4,"A"},
+	   {"MONK",3,"B"},
+       {"DRUID",1,"B"},
+	   {"DEMONHUNTER",4,"B"},
+	   {"EVOKER",3,"C"},
+        },
 
+    tierGroupNames = {"Dreadful","Bloody","Mystic","Venerated","Zenith"},
+	
+	-- Tier token by group including the "anytoken" from the last boss
+	tierTokenID = {
+            {tierGroup = 1,tokenIDTable = {"228799","228804","228807","228811","228815","228819"}},
+	        {tierGroup = 2,tokenIDTable = {"228800","228805","228807","228812","228816","228819"}},
+            {tierGroup = 3,tokenIDTable = {"228801","228806","228808","228813","228817","228819"}},
+	        {tierGroup = 4,tokenIDTable = {"228802","228807","228809","228814","228818","228819"}},
+	        },
+	
 	--[[------------------------------------ FILTER SETUP AND MANAGEMENT ---------------------------------
-
-    A = Cloth
-	B = leather
-	C = Mail
-	D = Plate	
 
     Equipment Type for filterColumnElements
 	ID="E" is "Armour"                ID="F" is "Trinkets"
@@ -373,8 +381,14 @@ globalConfig = {
         {"INVTYPE_NON_EQUIP_IGNORE","Tier Token","L"},
     },
 	
-    filterArmourType = {"A","B","C","D"},
-	
+    filterArmourType = {
+		{"A","Cloth"},
+		{"B","Leather"},
+        {"C","Mail"},
+        {"D","Plate"},
+		},
+
+		
      --[[
      This table allow the generation of the filter boxes.  Should probably replace with plain code in the future
 	    Type: 
@@ -511,42 +525,6 @@ globalConfig = {
 		},
 
     },
-
-	
---[[
-    1	Warrior	        WARRIOR	
-    2	Paladin	        PALADIN	
-    3	Hunter	        HUNTER	
-    4	Rogue	        ROGUE	
-    5	Priest	        PRIEST	
-    6	Death Knight	DEATHKNIGHT
-    7	Shaman	        SHAMAN	
-    8	Mage	        MAGE	
-    9	Warlock	        WARLOCK	
-    10	Monk	        MONK	
-    11	Druid	        DRUID	
-    12	Demon Hunter	DEMONHUNTER	
-    13	Evoker	        EVOKER	
-
---]]
-
-    -- Group the standard Warcraft types into filter groups
-    classArmour = {
-
-		{class = 1,armour="D"},
-		{class = 2,armour="D"},	
-        {class = 3,armour="C"},
-		{class = 4,armour="B"},
-		{class = 5,armour="A"},	
-		{class = 6,armour="D"},		
-		{class = 7,armour="C"},			
-        {class = 8,armour="A"},
-		{class = 9,armour="A"},
-		{class = 10,armour="B"},
-		{class = 11,armour="B"},
-		{class = 12,armour="B"},	
-		{class = 13,armour="C"},		
-        },
 
 
 --[[
