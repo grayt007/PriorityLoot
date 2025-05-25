@@ -36,7 +36,7 @@ local dbName = ("%sDb"):format(MyAddOnName)
 finishedInitalising = false -- there is a delay in getting guild info in the client.   The client  needs 10-15 seconds to finish fully initalising. 
 thisAddon.priorityLootRollsActive = false -- Has the loot manager activated the addon for this raid.
 
-version = 0.73  -- date("%m%d%H%M")
+version = 0.74  -- date("%m%d%H%M")
 iAmTheLootManager = false
 iAmTheGM = false
 local tableColumnContent = "S"
@@ -132,7 +132,7 @@ function addon:OnInitialize()                                               -- M
         addon:ScheduleTimer("buildPL_CONFIG_CHECK", random(15,30)) -- delay sending the message to spread them out if multiple people login near the same time
         addon:ScheduleTimer("buildPL_RANK_CHECK", random(30,45))   -- delay sending the message to spread them out if multiple people login near the same time
 
-        addon:displayWelcomeImage()
+        --$$ addon:displayWelcomeImage()
 
         self.registered = true
     end
@@ -189,9 +189,12 @@ function addon:OnEnable()
 	buildMainLootWindow()      
     util.AddDebugData(true,"buildMainLootWinbdow done ")
 
+
     -- Build the main loot roll frame for he big event
 
     addon:createRollFrame()
+
+
     util.AddDebugData(true,"createRollFrame() done ")
     -- Load options after we have some information about the guild
 

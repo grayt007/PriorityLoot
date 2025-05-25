@@ -70,7 +70,7 @@ profileConfig = {
 
     -------------------------------------- DEBUGGING ---------------------------------
     doYouWantToDebug = false,
-    doYouHaveDevTool = false,
+    useDevToolAddon = false,
     doYouWantDetailedDebug = false,
     doYouWantToDebugMessages = false,
     useTestData = false,

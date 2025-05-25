@@ -217,8 +217,8 @@ function checkIExist()
             addon.PLdb.char.myTierGroup = addon.PLdb.global.classInfo[myClassID][2]
 
             util.AddDebugData(myClassID," Class type set to ")
-            util.AddDebugData(armourType.armour," Armour type set to ")
-            util.AddDebugData(addon.PLdb.char.myTierGroup," Tier Group set to ")
+            util.AddDebugData(addon.PLdb.global.classInfo[myClassID][3]," Armour type set to ")
+            util.AddDebugData(addon.PLdb.global.classInfo[myClassID][2]," Tier Group set to ")
 			util.AddDebugData(addon.PLdb.global.tierGroupNames[addon.PLdb.char.myTierGroup],"Tier Group Name")
     --    end
     --end

@@ -978,7 +978,7 @@ function addon:addOtherOptions(theOrder)
                         type = "description",
                         width = "full",
                     },
-                    doYouHaveDevTool = {
+                    useDevToolAddon = {
                         type = 'toggle',
                         name = 'Do you want to output debugging to DevTool',
                         desc = 'You have the "DevTool" addon for debugging installed and configured and want to use it.',
@@ -988,9 +988,9 @@ function addon:addOtherOptions(theOrder)
                                     loaded , _ = C_AddOns.IsAddOnLoaded("DevTool") 
                                     return not loaded
                                     end,
-                        get = function() return self.PLdb.profile.doYouHaveDevTool end,
+                        get = function() return self.PLdb.profile.useDevToolAddon end,
                         set = function(info, value) 
-                                self.PLdb.profile.doYouHaveDevTool = value 
+                                self.PLdb.profile.useDevToolAddon = value 
                                 end,
                         order = 36,
                     },
@@ -1202,6 +1202,7 @@ local counter = 0
 
     -- Main options dialog.
     AceConfig:RegisterOptionsTable(MyAddOnName, self.options)
+    ACR:RegisterOptionsTable(MyAddOnName, self.options)
     ACD:SetDefaultSize(MyAddOnName, 635, 730)
 
 
