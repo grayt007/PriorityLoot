@@ -1,8 +1,8 @@
 --- **AceLocale-3.0** manages localization in addons, allowing for multiple locale to be registered with fallback to the base locale for untranslated strings.
 -- @class file
 -- @name AceLocale-3.0
--- @release $Id: AceLocale-3.0.lua 1005 2011-01-29 14:19:43Z mikk $
-local MAJOR,MINOR = "AceLocale-3.0", 5
+-- @release $Id: AceLocale-3.0.lua 1284 2022-09-25 09:15:30Z nevcairiel $
+local MAJOR,MINOR = "AceLocale-3.0", 6
 
 local AceLocale, oldminor = LibStub:NewLibrary(MAJOR, MINOR)
 
@@ -10,11 +10,7 @@ if not AceLocale then return end -- no upgrade needed
 
 -- Lua APIs
 local assert, tostring, error = assert, tostring, error
-local setmetatable, rawset, rawget = setmetatable, rawset, rawget
-
--- Global vars/functions that we don't upvalue since they might get hooked, or upgraded
--- List them here for Mikk's FindGlobals script
--- GLOBALS: GAME_LOCALE, geterrorhandler
+local getmetatable, setmetatable, rawset, rawget = getmetatable, setmetatable, rawset, rawget
 
 local gameLocale = GetLocale()
 if gameLocale == "enGB" then
@@ -93,11 +89,11 @@ local writedefaultproxy = setmetatable({}, {
 function AceLocale:NewLocale(application, locale, isDefault, silent)
 
 	-- GAME_LOCALE allows translators to test translations of addons without having that wow client installed
-	local gameLocale = GAME_LOCALE or gameLocale
+	local activeGameLocale = GAME_LOCALE or gameLocale
 
 	local app = AceLocale.apps[application]
 
-	if silent and app then
+	if silent and app and getmetatable(app) ~= readmetasilent then
 		geterrorhandler()("Usage: NewLocale(application, locale[, isDefault[, silent]]): 'silent' must be specified for the first locale registered")
 	end
 
@@ -111,7 +107,7 @@ function AceLocale:NewLocale(application, locale, isDefault, silent)
 		AceLocale.appnames[app] = application
 	end
 
-	if locale ~= gameLocale and not isDefault then
+	if locale ~= activeGameLocale and not isDefault then
 		return -- nop, we don't need these translations
 	end
 
